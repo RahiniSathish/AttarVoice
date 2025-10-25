@@ -1,0 +1,12 @@
+{
+  "name": "mytrip-voice-widget",
+  "version": "1.0.0",
+  "description": "Embeddable voice assistant widget",
+  "main": "src/widget.js",
+  "scripts": {
+    "start": "python -m http.server 4000"
+  },
+  "dependencies": {
+    "@vapi-ai/web": "^2.5.0"
+  }
+}

@@ -1,0 +1,488 @@
+/* Travel.ai Voice Widget Styles - Floating Design */
+
+:root {
+    --widget-primary: #4169E1;
+    --widget-primary-dark: #2952CC;
+    --widget-success: #10b981;
+    --widget-danger: #ef4444;
+    --widget-bg: #FFFFFF;
+    --widget-bg-light: #F5F7FA;
+    --widget-text: #1a202c;
+    --widget-text-light: #6B7280;
+    --widget-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    --widget-border: #E5E7EB;
+}
+
+/* Floating Button */
+.mytrip-voice-widget-btn {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--widget-primary) 0%, var(--widget-primary-dark) 100%);
+    border: none;
+    cursor: pointer;
+    box-shadow: var(--widget-shadow);
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: fadeInUp 0.5s ease-out;
+}
+
+.mytrip-voice-widget-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 15px 50px rgba(99, 102, 241, 0.4);
+}
+
+.mytrip-voice-widget-btn:active {
+    transform: scale(0.95);
+}
+
+.mytrip-voice-widget-btn.active {
+    background: linear-gradient(135deg, var(--widget-success) 0%, #059669 100%);
+    animation: pulse 2s infinite;
+}
+
+.widget-btn-icon {
+    font-size: 28px;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+/* Notification Badge */
+.widget-notification-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 20px;
+    height: 20px;
+    background: var(--widget-danger);
+    border-radius: 50%;
+    border: 3px solid white;
+    animation: bounce 1s infinite;
+}
+
+/* Voice Panel */
+.mytrip-voice-widget-panel {
+    position: fixed;
+    bottom: 100px;
+    right: 24px;
+    width: 420px;
+    max-width: calc(100vw - 48px);
+    background: var(--widget-bg);
+    border-radius: 24px;
+    box-shadow: var(--widget-shadow);
+    border: 1px solid var(--widget-border);
+    z-index: 999998;
+    overflow: hidden;
+    transform: translateY(20px) scale(0.95);
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mytrip-voice-widget-panel.open {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    pointer-events: all;
+}
+
+/* Panel Header */
+.widget-panel-header {
+    background: linear-gradient(135deg, var(--widget-primary) 0%, var(--widget-primary-dark) 100%);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.widget-header-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.widget-header-icon {
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.widget-header-text h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: white;
+}
+
+.widget-header-text p {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.widget-close-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.widget-close-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: rotate(90deg);
+}
+
+/* Panel Body */
+.widget-panel-body {
+    padding: 20px;
+    min-height: 400px;
+    max-height: 500px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    background: var(--widget-bg-light);
+}
+
+.widget-panel-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.widget-panel-body::-webkit-scrollbar-track {
+    background: var(--widget-bg-light);
+}
+
+.widget-panel-body::-webkit-scrollbar-thumb {
+    background: var(--widget-primary);
+    border-radius: 3px;
+}
+
+/* Voice Status */
+.widget-voice-status {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.voice-status-icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+    animation: float 3s ease-in-out infinite;
+}
+
+.voice-status-icon.listening {
+    animation: pulse 1.5s infinite;
+}
+
+.voice-status-text {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--widget-text);
+    margin-bottom: 8px;
+}
+
+.voice-status-subtext {
+    font-size: 14px;
+    color: rgba(241, 245, 249, 0.6);
+}
+
+/* Waveform Animation */
+.voice-waveform {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    height: 40px;
+    margin: 20px 0;
+}
+
+.wave-bar {
+    width: 4px;
+    height: 20px;
+    background: var(--widget-primary);
+    border-radius: 2px;
+    animation: waveAnimation 1s ease-in-out infinite;
+}
+
+.wave-bar:nth-child(2) { animation-delay: 0.1s; }
+.wave-bar:nth-child(3) { animation-delay: 0.2s; }
+.wave-bar:nth-child(4) { animation-delay: 0.3s; }
+.wave-bar:nth-child(5) { animation-delay: 0.4s; }
+
+/* Conversation Messages */
+.widget-message {
+    display: flex;
+    gap: 10px;
+    animation: messageSlideIn 0.3s ease-out;
+    align-items: flex-end;
+}
+
+.widget-message.user {
+    flex-direction: row-reverse;
+}
+
+.message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--widget-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+    border: 2px solid var(--widget-border);
+}
+
+.widget-message.user .message-avatar {
+    background: var(--widget-bg);
+}
+
+.message-bubble {
+    background: white;
+    padding: 14px 18px;
+    border-radius: 20px;
+    max-width: 75%;
+    word-wrap: break-word;
+    font-size: 15px;
+    color: var(--widget-text);
+    line-height: 1.5;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.widget-message.user .message-bubble {
+    background: var(--widget-primary);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.widget-message.ai .message-bubble {
+    border-bottom-left-radius: 4px;
+}
+
+.message-time {
+    font-size: 11px;
+    color: var(--widget-text-light);
+    opacity: 0.7;
+    margin-top: 4px;
+    padding: 0 18px;
+}
+
+/* Action Buttons */
+.widget-action-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.widget-action-btn {
+    flex: 1;
+    padding: 12px;
+    background: var(--widget-bg-light);
+    border: 1px solid var(--widget-primary);
+    color: var(--widget-text);
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.widget-action-btn:hover {
+    background: var(--widget-primary);
+    transform: translateY(-2px);
+}
+
+.widget-action-btn.primary {
+    background: var(--widget-primary);
+    border-color: var(--widget-primary);
+}
+
+/* Panel Footer */
+.widget-panel-footer {
+    padding: 16px 20px;
+    background: white;
+    border-top: 1px solid var(--widget-border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.footer-input-wrapper {
+    flex: 1;
+    position: relative;
+}
+
+.footer-input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid var(--widget-border);
+    border-radius: 24px;
+    font-size: 14px;
+    color: var(--widget-text);
+    background: var(--widget-bg-light);
+    outline: none;
+    transition: all 0.2s;
+}
+
+.footer-input:focus {
+    border-color: var(--widget-primary);
+    background: white;
+}
+
+.footer-input::placeholder {
+    color: var(--widget-text-light);
+}
+
+.footer-send-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--widget-primary);
+    border: none;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.footer-send-btn:hover {
+    background: var(--widget-primary-dark);
+    transform: scale(1.05);
+}
+
+.footer-send-btn:active {
+    transform: scale(0.95);
+}
+
+.footer-powered-by {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--widget-text-light);
+    justify-content: center;
+    padding: 8px 0 0 0;
+}
+
+.footer-logo {
+    font-weight: 600;
+    color: var(--widget-primary);
+}
+
+/* Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 10px 40px rgba(99, 102, 241, 0.3);
+    }
+    50% {
+        box-shadow: 0 10px 60px rgba(99, 102, 241, 0.6);
+    }
+}
+
+@keyframes bounce {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.2);
+    }
+}
+
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+@keyframes messageSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes waveAnimation {
+    0%, 100% {
+        height: 10px;
+    }
+    50% {
+        height: 30px;
+    }
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .mytrip-voice-widget-btn {
+        width: 56px;
+        height: 56px;
+        bottom: 16px;
+        right: 16px;
+    }
+
+    .mytrip-voice-widget-panel {
+        width: calc(100vw - 32px);
+        right: 16px;
+        bottom: 84px;
+    }
+
+    .widget-panel-body {
+        max-height: 300px;
+    }
+}
+
+/* Loading Spinner */
+.widget-loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}

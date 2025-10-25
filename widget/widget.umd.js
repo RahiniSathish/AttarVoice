@@ -1,0 +1,1 @@
+Redirecting to /@vapi-ai/web@2.5.0/dist/index.umd.js

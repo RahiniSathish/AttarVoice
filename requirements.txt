@@ -1,0 +1,50 @@
+# Vapi-Haptik Voice Bot Requirements
+
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# HTTP Clients
+requests==2.31.0
+httpx==0.25.1
+
+# Environment & Configuration
+python-dotenv==1.0.0
+
+# Database
+sqlite3 # Built-in with Python
+
+# Voice & AI
+openai==1.3.5
+deepgram-sdk==2.12.0
+
+# Telephony (Optional - for production)
+twilio==8.10.0
+
+# Utilities
+python-dateutil==2.8.2
+
+# Logging & Monitoring
+loguru==0.7.2
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+
+# Code Quality
+black==23.11.0
+flake8==6.1.0
+mypy==1.7.1
+
+# Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Additional
+aiofiles==23.2.1
+jinja2==3.1.2
+
+sendgrid==6.11.0

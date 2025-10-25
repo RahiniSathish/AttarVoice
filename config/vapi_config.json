@@ -1,0 +1,236 @@
+{
+  "assistant": {
+    "name": "MyTrip.ai Travel Assistant",
+    "voice": {
+      "provider": "deepgram",
+      "voiceId": "aura-asteria-en",
+      "model": "nova-2",
+      "language": "en-IN"
+    },
+    "model": {
+      "provider": "openai",
+      "model": "gpt-4",
+      "temperature": 0.7,
+      "maxTokens": 500,
+      "systemPrompt": "You are a helpful travel assistant for MyTrip.ai. Help customers book flights, hotels, and travel packages. Be polite, clear, and efficient. Always confirm details before booking. Support English, Hindi, and Kannada languages."
+    },
+    "firstMessage": "Hello! Welcome to MyTrip.ai. I'm your AI travel assistant. How can I help you today? You can ask me to search flights, book hotels, or plan your trip.",
+    "endCallMessage": "Thank you for calling MyTrip.ai. Have a wonderful journey! Goodbye.",
+    "recordingEnabled": true,
+    "hipaaEnabled": false,
+    "endCallAfterSilence": 30,
+    "maxCallDuration": 900,
+    "backgroundSound": "office",
+    "voicemailMessage": "Thank you for calling MyTrip.ai. We're currently unavailable. Please call back or visit our website at mytrip.ai",
+    "silenceTimeoutSeconds": 30,
+    "responseDelaySeconds": 1.5,
+    "llmRequestDelaySeconds": 0.5,
+    "numWordsToInterruptAssistant": 2,
+    "interruptionTimeout": 3000
+  },
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "search_flights",
+        "description": "Search for available flights based on origin, destination, date, and passengers",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "description": "Origin city or airport code (e.g., Bengaluru, BLR)"
+            },
+            "destination": {
+              "type": "string",
+              "description": "Destination city or airport code (e.g., Dubai, DXB)"
+            },
+            "departure_date": {
+              "type": "string",
+              "description": "Departure date in YYYY-MM-DD format"
+            },
+            "return_date": {
+              "type": "string",
+              "description": "Return date in YYYY-MM-DD format (optional for one-way)"
+            },
+            "passengers": {
+              "type": "integer",
+              "description": "Number of passengers",
+              "default": 1
+            },
+            "cabin_class": {
+              "type": "string",
+              "enum": ["economy", "premium_economy", "business", "first"],
+              "default": "economy"
+            }
+          },
+          "required": ["origin", "destination", "departure_date"]
+        }
+      },
+      "server": {
+        "url": "{{BOOKING_API_URL}}/api/search-flights"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search_hotels",
+        "description": "Search for available hotels in a destination",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "destination": {
+              "type": "string",
+              "description": "Destination city"
+            },
+            "check_in": {
+              "type": "string",
+              "description": "Check-in date in YYYY-MM-DD format"
+            },
+            "check_out": {
+              "type": "string",
+              "description": "Check-out date in YYYY-MM-DD format"
+            },
+            "guests": {
+              "type": "integer",
+              "description": "Number of guests",
+              "default": 1
+            },
+            "rooms": {
+              "type": "integer",
+              "description": "Number of rooms",
+              "default": 1
+            }
+          },
+          "required": ["destination", "check_in", "check_out"]
+        }
+      },
+      "server": {
+        "url": "{{BOOKING_API_URL}}/api/search-hotels"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_booking",
+        "description": "Create a booking for flights or hotels",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "booking_type": {
+              "type": "string",
+              "enum": ["flight", "hotel", "package"]
+            },
+            "item_id": {
+              "type": "string",
+              "description": "ID of the selected flight or hotel"
+            },
+            "customer_phone": {
+              "type": "string",
+              "description": "Customer phone number"
+            },
+            "customer_email": {
+              "type": "string",
+              "description": "Customer email"
+            },
+            "passenger_details": {
+              "type": "array",
+              "description": "List of passenger details"
+            }
+          },
+          "required": ["booking_type", "item_id", "customer_phone"]
+        }
+      },
+      "server": {
+        "url": "{{BOOKING_API_URL}}/api/create-booking"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_booking_status",
+        "description": "Get status of an existing booking",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "booking_reference": {
+              "type": "string",
+              "description": "Booking reference number"
+            }
+          },
+          "required": ["booking_reference"]
+        }
+      },
+      "server": {
+        "url": "{{BOOKING_API_URL}}/api/booking-status"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "transfer_to_agent",
+        "description": "Transfer call to a human travel agent",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "description": "Reason for transfer"
+            },
+            "priority": {
+              "type": "string",
+              "enum": ["low", "medium", "high"],
+              "default": "medium"
+            }
+          },
+          "required": ["reason"]
+        }
+      },
+      "server": {
+        "url": "{{BOOKING_API_URL}}/api/transfer-agent"
+      }
+    }
+  ],
+  "telephony": {
+    "provider": "twilio",
+    "numberPurchaseEnabled": true,
+    "voicemailEnabled": true,
+    "callRecordingEnabled": true,
+    "callForwardingEnabled": true
+  },
+  "analytics": {
+    "enabled": true,
+    "events": [
+      "call_started",
+      "call_ended",
+      "search_performed",
+      "booking_created",
+      "transfer_requested",
+      "error_occurred"
+    ]
+  },
+  "multilingual": {
+    "languages": [
+      {
+        "code": "en",
+        "name": "English",
+        "voice": "en-IN-Wavenet-A",
+        "enabled": true
+      },
+      {
+        "code": "hi",
+        "name": "Hindi",
+        "voice": "hi-IN-Wavenet-A",
+        "enabled": true
+      },
+      {
+        "code": "kn",
+        "name": "Kannada",
+        "voice": "kn-IN-Wavenet-A",
+        "enabled": true
+      }
+    ],
+    "autoDetect": true
+  }
+}
+
