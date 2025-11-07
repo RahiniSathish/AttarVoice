@@ -3,11 +3,884 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Travel.ai - AI Travel Voice Assistant</title>
-    <link rel="stylesheet" href="src/styles/main.css">
+    <title>Travel.ai Voice Assistant</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 60px;
+            text-align: center;
+        }
+        
+        h1 {
+            color: #14B8A6;
+            margin: 0 0 20px 0;
+            font-size: 3em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #14B8A6 0%, #0891b2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            color: #6366f1;
+            font-size: 1.3em;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+        
+        .description {
+            color: #666;
+            font-size: 1.1em;
+            line-height: 1.8;
+            margin-bottom: 40px;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        
+        .features {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 30px 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 30px;
+            justify-content: center;
+        }
+        
+        .features li {
+            background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+            border-radius: 16px;
+            padding: 35px 30px;
+            text-align: center;
+            border: 2px solid #e5e7eb;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .features li::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, #14B8A6, #6366f1);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+        
+        .features li:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 12px 30px rgba(0,0,0,0.15);
+            border-color: #14B8A6;
+        }
+        
+        .features li:hover::before {
+            transform: scaleX(1);
+        }
+        
+        .feature-title {
+            font-weight: 700;
+            color: #1f2937;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+        
+        .feature-desc {
+            color: #6b7280;
+            font-size: 1em;
+            line-height: 1.6;
+        }
+        
+        .info-box {
+            background: linear-gradient(135deg, #14B8A6 0%, #0891b2 100%);
+            color: white;
+            border-radius: 16px;
+            padding: 30px;
+            margin-top: 40px;
+            box-shadow: 0 10px 30px rgba(20, 184, 166, 0.3);
+        }
+        
+        .info-box strong {
+            font-size: 1.2em;
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {
+                transform: translateY(0);
+            }
+            40% {
+                transform: translateY(-10px);
+            }
+            60% {
+                transform: translateY(-5px);
+            }
+        }
+        
+        .badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin-top: 15px;
+            backdrop-filter: blur(10px);
+        }
+    </style>
 </head>
 <body>
-    <div id="root"></div>
-    <script type="module" src="src/main.js"></script>
+    <div class="container">
+        <h1>Travel Assistant</h1>
+        <p class="description">
+            Your intelligent AI-powered travel companion for booking flights, planning trips to Saudi Arabia, 
+            and getting personalized travel recommendations. Talk naturally with Alex using voice or text!
+        </p>
+        
+        <!-- Manual Summary Trigger Button (Backup) -->
+        <div style="text-align: center; margin: 15px 0;">
+            <button onclick="showLastCallSummary()" style="background: #f3f4f6; color: #6b7280; border: 1px solid #d1d5db; padding: 8px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.3s ease;">
+                 View Last Conversation (Manual)
+            </button>
+            <p style="font-size: 12px; color: #9ca3af; margin-top: 8px;">Transcript will appear automatically after calls. Use this button if needed.</p>
+        </div>
+        <ul class="features">
+            <li>
+                <div class="feature-title">Smart Flight Booking</div>
+                <div class="feature-desc">Book flights with complete details - just tell Alex where and when you want to go</div>
+            </li>
+            <li>
+                <div class="feature-title">Trip Planning</div>
+                <div class="feature-desc">Get custom 3-10 day itineraries for Saudi Arabia tailored to your interests</div>
+            </li>
+            <li>
+                <div class="feature-title">Natural Conversation</div>
+                <div class="feature-desc">Alex speaks warmly and professionally, guiding you through every step</div>
+            </li>
+            <li>
+                <div class="feature-title">Live Transcript</div>
+                <div class="feature-desc">See your conversation in real-time with full transcript display</div>
+            </li>
+        </ul>
+        <!-- <div class="info-box">
+            <strong>Look for the chat widget in the bottom-right corner!</strong>
+            <p style="margin-top: 15px; font-size: 1.05em;">
+                Click it to start chatting with Alex, your AI travel assistant from Attar Travel Agency. 
+                Get help with flight bookings, trip planning, and all your travel needs!
+            </p>
+            <div class="badge">
+                Assistant: Alex | Personality: Warm & Professional | Specialty: Saudi Arabia
+        </div>
+        </div> -->
+    </div>
+
+    <!-- Vapi Widget Component -->
+    <vapi-widget
+        public-key="577ae6b3-53b9-4a37-b6f6-74e8e8808368"
+        assistant-id="e1c04a87-a8cf-4438-a91b-5888f69d1ef2"
+        mode="voice"
+        theme="dark"
+        transcript-format="markdown"
+        enable-markdown="true"
+        enable-links="true"
+        base-bg-color="#000000"
+        accent-color="#14B8A6"
+        cta-button-color="#000000"
+        cta-button-text-color="#ffffff"
+        border-radius="large"
+        size="full"
+        position="bottom-right"
+        title="TALK WITH AI"
+        start-button-text="Start"
+        end-button-text="End Call"
+        chat-first-message="Welcome to Attar Travel. I'm Alex, your AI travel assistant. How can I help you today?"
+        chat-placeholder="Type your message..."
+        voice-show-transcript="true"
+    ></vapi-widget>
+
+    <!-- Vapi Widget Script - WORKING CDN -->
+    <script src="https://unpkg.com/@vapi-ai/client-sdk-react/dist/embed/widget.umd.js" async type="text/javascript"></script>
+
+    <script>
+        console.log('✅ Vapi Widget Configuration:');
+        console.log('   - Public Key: 577ae6b3-53b9-4a37-b6f6-74e8e8808368');
+        console.log('   - Assistant ID: e1c04a87-a8cf-4438-a91b-5888f69d1ef2');
+        console.log('   - Assistant: Alex (Attar Travel Agency)');
+        console.log('   - Widget CDN: https://unpkg.com/@vapi-ai/client-sdk-react/dist/embed/widget.umd.js');
+        console.log('   - Theme: Dark with Attar branding (#14B8A6)');
+        
+        // Add CSS for smooth text display and summary modal
+        const style = document.createElement('style');
+        style.textContent = `
+            /* Smooth text wrapping inside messages */
+            vapi-widget::part(transcript-message),
+            vapi-widget::part(message),
+            vapi-widget::part(message-text) {
+                white-space: pre-wrap !important;
+                line-height: 1.6 !important;
+                word-wrap: break-word !important;
+                word-break: normal !important;
+                overflow-wrap: break-word !important;
+                display: block !important;
+            }
+            
+            vapi-widget::part(transcript-container) {
+                line-height: 1.6 !important;
+            }
+            
+            /* Ensure messages don't create unnecessary line breaks */
+            vapi-widget::part(message-container) {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 12px !important;
+            }
+            
+            /* Smooth transitions */
+            vapi-widget::part(message) {
+                transition: all 0.2s ease !important;
+            }
+            
+            /* Call Summary Modal */
+            .call-summary-modal {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                border-radius: 16px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+                padding: 35px;
+                max-width: 700px;
+                width: 90%;
+                max-height: 85vh;
+                overflow-y: auto;
+                z-index: 10000;
+                display: none;
+            }
+            
+            .call-summary-modal.show {
+                display: block;
+                animation: slideIn 0.3s ease;
+            }
+            
+            @keyframes slideIn {
+                from {
+                    opacity: 0;
+                    transform: translate(-50%, -60%);
+                }
+                to {
+                    opacity: 1;
+                    transform: translate(-50%, -50%);
+                }
+            }
+            
+            .modal-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.7);
+                backdrop-filter: blur(5px);
+                z-index: 9999;
+                display: none;
+            }
+            
+            .modal-overlay.show {
+                display: block;
+            }
+            
+            .summary-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 25px;
+                padding-bottom: 20px;
+                border-bottom: 3px solid #14B8A6;
+            }
+            
+            .summary-title {
+                font-size: 24px;
+                font-weight: 700;
+                color: #14B8A6;
+                margin: 0;
+            }
+            
+            .close-btn {
+                background: #f3f4f6;
+                border: none;
+                width: 35px;
+                height: 35px;
+                border-radius: 50%;
+                cursor: pointer;
+                font-size: 20px;
+                color: #6b7280;
+                transition: all 0.2s;
+            }
+            
+            .close-btn:hover {
+                background: #e5e7eb;
+                color: #1f2937;
+            }
+            
+            .summary-content {
+                color: #374151;
+                font-size: 15px;
+                line-height: 1.8;
+            }
+            
+            .summary-section {
+                margin-bottom: 22px;
+                padding: 18px 22px;
+                background: #f8f9fa;
+                border-radius: 10px;
+                border-left: 4px solid #14B8A6;
+                transition: all 0.2s ease;
+            }
+            
+            .summary-section:hover {
+                background: #f3f4f6;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            }
+            
+            .summary-section-title {
+                font-size: 17px;
+                font-weight: 700;
+                color: #1f2937;
+                margin: 0 0 14px 0;
+                letter-spacing: -0.2px;
+            }
+            
+            .summary-section ul {
+                margin: 0;
+                padding-left: 20px;
+            }
+            
+            .summary-section li {
+                margin-bottom: 8px;
+            }
+            
+            .booking-card {
+                background: linear-gradient(135deg, #14B8A6 0%, #0891b2 100%);
+                color: white;
+                padding: 25px;
+                border-radius: 16px;
+                margin-top: 20px;
+            }
+            
+            .booking-card-title {
+                font-size: 20px;
+                font-weight: 700;
+                margin: 0 0 15px 0;
+            }
+            
+            .booking-info {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+                font-size: 14px;
+            }
+            
+            .booking-info-item {
+                display: flex;
+                justify-content: space-between;
+                padding: 8px 0;
+            }
+            
+            .booking-label {
+                font-weight: 600;
+                opacity: 0.9;
+            }
+        `;
+        document.head.appendChild(style);
+        
+        console.log('✅ Widget styling applied - smooth text display enabled');
+        
+        // Track if we're currently in a call
+        let isCallActive = false;
+        let lastSummaryTimestamp = null;
+        
+        // Function to show the last call summary manually
+        async function showLastCallSummary() {
+            console.log(' Fetching latest call summary...');
+            try {
+                const response = await fetch('http://localhost:8080/api/call-summary-latest');
+                if (response.ok) {
+                    const data = await response.json();
+                    displayCallSummary(data);
+                } else {
+                    alert('No call summary available yet. Please make a call first!');
+                }
+            } catch (error) {
+                console.error('❌ Error fetching summary:', error);
+                alert('Failed to fetch call summary. Please check if backend is running.');
+            }
+        }
+        
+        // Function to check for new summary after call ends
+        async function checkForNewSummary() {
+            try {
+                const response = await fetch('http://localhost:8080/api/call-summary-latest');
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Check if this is a new summary (different timestamp)
+                    if (data.timestamp && data.timestamp !== lastSummaryTimestamp) {
+                        console.log('✅ New summary detected!');
+                        lastSummaryTimestamp = data.timestamp;
+                        displayCallSummary(data);
+                        return true;
+                    }
+                } else if (response.status === 404) {
+                    // 404 is expected when no summary is available yet
+                    console.log('No summary available yet (404)');
+                }
+            } catch (error) {
+                console.log('⚠️ Error checking for summary:', error);
+            }
+            return false;
+        }
+        
+        // Function to poll for summary after call ends - OPTIMIZED FOR IMMEDIATE DISPLAY
+        async function pollForSummary() {
+            console.log('🔄 Starting immediate polling for call summary...');
+            let attempts = 0;
+            const maxAttempts = 20; // Poll for up to 20 attempts
+            
+            const pollInterval = setInterval(async () => {
+                attempts++;
+                console.log(`🔄 Poll attempt ${attempts}/${maxAttempts}`);
+                
+                const found = await checkForNewSummary();
+                
+                if (found || attempts >= maxAttempts) {
+                    clearInterval(pollInterval);
+                    if (found) {
+                        console.log('✅ Summary displayed successfully!');
+                    } else {
+                        console.log('⚠️ No summary found after polling');
+                    }
+                }
+            }, 500); // Check every 500ms for faster response
+        }
+        
+        // Make function globally available
+        window.showLastCallSummary = showLastCallSummary;
+        
+        // Listen for Vapi events to display summary after call ends
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('✅ Page loaded, setting up event listeners');
+            
+            const vapiWidget = document.querySelector('vapi-widget');
+            
+            if (vapiWidget) {
+                console.log('✅ Vapi widget found');
+                
+                // Monitor the widget's button state changes to detect call end
+                const observer = new MutationObserver((mutations) => {
+                    mutations.forEach((mutation) => {
+                        if (mutation.type === 'attributes' || mutation.type === 'childList') {
+                            // Check if widget state changed
+                            const widget = document.querySelector('vapi-widget');
+                            if (widget) {
+                                const widgetElement = widget.shadowRoot || widget;
+                                const callButton = widgetElement.querySelector('[data-testid="call-button"]') || 
+                                                  widgetElement.querySelector('button');
+                                
+                                if (callButton) {
+                                    const buttonText = callButton.textContent || callButton.innerText || '';
+                                    
+                                    // Detect when call ends (button changes from "End Call" to "Start" or similar)
+                                    if (isCallActive && (buttonText.toLowerCase().includes('start') || 
+                                                         buttonText.toLowerCase().includes('talk'))) {
+                                        console.log(' Call ended detected! Starting immediate summary fetch...');
+                                        isCallActive = false;
+                                        
+                                        // Start polling immediately (500ms for backend to process)
+                                        setTimeout(() => {
+                                            pollForSummary();
+                                        }, 500);
+                                    } else if (!isCallActive && (buttonText.toLowerCase().includes('end') || 
+                                                                 buttonText.toLowerCase().includes('hang'))) {
+                                        console.log('📞 Call started detected');
+                                        isCallActive = true;
+                                    }
+                                }
+                            }
+                        }
+                    });
+                });
+                
+                // Observe the entire widget for changes
+                observer.observe(vapiWidget, {
+                    attributes: true,
+                    childList: true,
+                    subtree: true,
+                    characterData: true
+                });
+                
+                // Also try standard event listeners as backup
+                const eventTypes = ['call-end', 'callEnd', 'call:end', 'ended', 'call-ended'];
+                
+                eventTypes.forEach(eventType => {
+                    vapiWidget.addEventListener(eventType, async (event) => {
+                        console.log(`📞 Event received: ${eventType}`, event);
+                        isCallActive = false;
+                        
+                        // Start polling for summary immediately
+                        setTimeout(() => {
+                            pollForSummary();
+                        }, 500);
+                    });
+                });
+                
+                console.log('✅ Event listeners and mutation observer attached');
+            } else {
+                console.warn('⚠️ Vapi widget not found');
+            }
+        });
+        
+        // Function to display the call summary modal
+        function displayCallSummary(data) {
+            const summary = data.summary;
+            const bookingDetails = data.booking_details;
+            const userName = data.user_name || 'Customer';
+            const transcript = data.transcript || [];
+            
+            // Create modal overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            
+            // Create modal
+            const modal = document.createElement('div');
+            modal.className = 'call-summary-modal';
+            
+            // Parse summary sections
+            const sections = parseSummary(summary);
+            
+            // Build modal HTML - FULL CONVERSATION ONLY
+            let modalHTML = `
+                <div class="summary-header">
+                    <div style="flex: 1;">
+                        <h2 class="summary-title">Full Conversation</h2>
+                        <p style="margin: 5px 0 0 0; font-size: 14px; color: #6b7280;">Your conversation with Attar Travel Agency</p>
+                    </div>
+                    <button class="close-btn" onclick="closeSummaryModal()">×</button>
+                </div>
+                <div class="summary-content">
+                    <p style="margin-bottom: 25px; font-size: 15px; color: #6b7280; line-height: 1.6;">
+                        Hello Traveler, here's your complete conversation:
+                    </p>
+                    
+                    <!-- Full Conversation Transcript -->
+                    <div style="margin-bottom: 30px;">
+                        <div style="background: #f9fafb; border-radius: 10px; padding: 20px; max-height: 450px; overflow-y: auto;">
+                            ${formatTranscript(transcript)}
+                        </div>
+                    </div>
+            `;
+            
+            // Add booking card if booking details exist
+            if (bookingDetails) {
+                modalHTML += `
+                    <div class="booking-card">
+                        <div class="booking-card-title">✈️ Flight Booking Confirmed</div>
+                        <div class="booking-info">
+                            <div class="booking-info-item">
+                                <span class="booking-label">From:</span>
+                                <span>${bookingDetails.departure_location || 'N/A'}</span>
+                            </div>
+                            <div class="booking-info-item">
+                                <span class="booking-label">To:</span>
+                                <span>${bookingDetails.destination || 'N/A'}</span>
+                            </div>
+                            <div class="booking-info-item">
+                                <span class="booking-label">Date:</span>
+                                <span>${bookingDetails.departure_date || 'N/A'}</span>
+                            </div>
+                            <div class="booking-info-item">
+                                <span class="booking-label">Booking ID:</span>
+                                <span>${bookingDetails.booking_id || 'N/A'}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            modalHTML += `
+                    <p style="margin-top: 25px; text-align: center; color: #6b7280; font-size: 14px;">
+                          A detailed summary has been sent to your email.
+                    </p>
+                </div>
+            `;
+            
+            modal.innerHTML = modalHTML;
+            
+            // Add to page
+            document.body.appendChild(overlay);
+            document.body.appendChild(modal);
+            
+            // Show with animation
+            setTimeout(() => {
+                overlay.classList.add('show');
+                modal.classList.add('show');
+            }, 100);
+            
+            // Close on overlay click
+            overlay.onclick = closeSummaryModal;
+            
+            console.log('✅ Summary modal displayed');
+        }
+        
+        // Function to format simple text summary (NO BUBBLES - PLAIN TEXT)
+        function formatSimpleSummary(summaryText) {
+            if (!summaryText) {
+                return '<p style="color: #9ca3af; text-align: center;">No summary available.</p>';
+            }
+            
+            // Split by section markers
+            const lines = summaryText.split('\n');
+            let html = '';
+            let inList = false;
+            
+            lines.forEach(line => {
+                line = line.trim();
+                if (!line) return;
+                
+                // Section headers (◆ symbol)
+                if (line.match(/^[◆📍🎯✅📝]/)) {
+                    // Close any open list
+                    if (inList) {
+                        html += '</ul>';
+                        inList = false;
+                    }
+                    const title = line.replace(/^[◆📍🎯✅📝]\s*/, '');
+                    html += `<div style="margin-top: 20px; margin-bottom: 12px;">
+                                <strong style="font-size: 16px; color: #1f2937; display: block;">${escapeHtml(title)}</strong>
+                             </div>`;
+                } 
+                // Bullet points
+                else if (line.startsWith('•')) {
+                    if (!inList) {
+                        html += '<ul style="margin: 0 0 10px 20px; padding: 0; list-style-type: disc; color: #4b5563;">';
+                        inList = true;
+                    }
+                    const text = line.substring(1).trim();
+                    html += `<li style="margin-bottom: 8px; line-height: 1.6;">${escapeHtml(text)}</li>`;
+                }
+                // Regular paragraphs
+                else {
+                    if (inList) {
+                        html += '</ul>';
+                        inList = false;
+                    }
+                    html += `<p style="margin: 8px 0; color: #4b5563; line-height: 1.7;">${escapeHtml(line)}</p>`;
+                }
+            });
+            
+            // Close any remaining open list
+            if (inList) {
+                html += '</ul>';
+            }
+            
+            return html || '<p style="color: #9ca3af; text-align: center;">No summary available.</p>';
+        }
+        
+        // Function to format transcript for display (FILTERS OUT SYSTEM PROMPTS)
+        function formatTranscript(transcript) {
+            if (!transcript || transcript.length === 0) {
+                return '<p style="color: #9ca3af; text-align: center; padding: 20px;">No conversation transcript available.</p>';
+            }
+            
+            let html = '';
+            transcript.forEach((msg, index) => {
+                const role = msg.role || 'unknown';
+                const message = msg.message || msg.text || '';
+                const timestamp = msg.timestamp || '';
+                
+                // FILTER OUT SYSTEM PROMPTS & ITINERARIES - Skip messages that contain system instructions
+                const systemKeywords = [
+                    'BOOKING ITINERARY ELEMENTS',
+                    'Skip the personalization step',
+                    'Ignore budget constraints',
+                    'Make unrealistic schedules',
+                    'Forget to include rest days',
+                    'Push expensive activities',
+                    'Provide generic copy-paste',
+                    'Read URLs aloud',
+                    'www dot google dot com',
+                    'API one and query',
+                    'SHALL I book the flights',
+                    'HOTEL RECOMMENDATIONS',
+                    'ACTIVITY PACKAGES',
+                    'FULL TOUR PACKAGE',
+                    'Day 2.',
+                    'Day 3.',
+                    'Day two',
+                    'Day three',
+                    'Morning tour',
+                    'Afternoon visit',
+                    'Evening stroll',
+                    'Evening return',
+                    'UNESCO World Heritage',
+                    'Historical Center',
+                    'Maraba Palace',
+                    'edge of the world',
+                    'Embark on a guided',
+                    'breathtaking views',
+                    'leisure day'
+                ];
+                
+                // Check if message contains system instructions or itinerary content
+                const isSystemPrompt = systemKeywords.some(keyword => 
+                    message.toUpperCase().includes(keyword.toUpperCase())
+                );
+                
+                // Check if message looks like an itinerary (contains "Day" followed by a number/period pattern)
+                const isItinerary = /Day\s*\d+[\.\:]/i.test(message) || 
+                                   /(Morning|Afternoon|Evening)\s+(tour|visit|stroll|return|Dine)/i.test(message);
+                
+                // Skip system prompts, itineraries, and very long messages (likely system instructions)
+                if (isSystemPrompt || isItinerary || message.length > 400) {
+                    return; // Skip this message
+                }
+                
+                let roleLabel = '';
+                let roleColor = '';
+                let bgColor = '';
+                let alignClass = '';
+                
+                if (role === 'user') {
+                    roleLabel = 'You';
+                    roleColor = '#6366f1';
+                    bgColor = '#eef2ff';
+                    alignClass = 'margin-left: 20px;';
+                } else if (role === 'assistant' || role === 'bot') {
+                    roleLabel = ' Alex';
+                    roleColor = '#14B8A6';
+                    bgColor = '#e6f7f5';
+                    alignClass = 'margin-right: 20px;';
+                } else {
+                    roleLabel = ' ' + role;
+                    roleColor = '#6b7280';
+                    bgColor = '#f3f4f6';
+                }
+                
+                html += `
+                    <div style="margin-bottom: 15px; ${alignClass}">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                            <span style="font-weight: 600; color: ${roleColor}; font-size: 14px;">${roleLabel}</span>
+                            ${timestamp ? `<span style="font-size: 11px; color: #9ca3af;">${timestamp}</span>` : ''}
+                        </div>
+                        <div style="background: ${bgColor}; padding: 12px 16px; border-radius: 12px; border-left: 3px solid ${roleColor}; line-height: 1.6; color: #374151; font-size: 14px;">
+                            ${escapeHtml(message)}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            return html || '<p style="color: #9ca3af; text-align: center; padding: 20px;">No user conversation available.</p>';
+        }
+        
+        // Function to escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Function to parse the structured summary
+        function parseSummary(summaryText) {
+            const sections = [];
+            const lines = summaryText.split('\n');
+            let currentSection = null;
+            
+            lines.forEach(line => {
+                line = line.trim();
+                if (!line) return;
+                
+                // Check for section headers (◆ symbol + title or emoji + title)
+                if (line.match(/^[◆📍🎯✅📝]/)) {
+                    if (currentSection) {
+                        // Close any open list tags
+                        if (currentSection.content.includes('<li>') && !currentSection.content.endsWith('</ul>')) {
+                            currentSection.content += '</ul>';
+                        }
+                        sections.push(currentSection);
+                    }
+                    const title = line.replace(/^[◆📍🎯✅📝]\s*/, '');
+                    currentSection = {
+                        title: title,
+                        content: '',
+                        hasListItems: false
+                    };
+                } else if (currentSection) {
+                    if (line.startsWith('•')) {
+                        const text = line.substring(1).trim();
+                        if (!currentSection.hasListItems) {
+                            currentSection.content += '<ul style="margin: 10px 0; padding-left: 20px; list-style-type: disc;">';
+                            currentSection.hasListItems = true;
+                        }
+                        currentSection.content += `<li style="margin-bottom: 8px; color: #374151;">${text}</li>`;
+                    } else {
+                        if (currentSection.hasListItems && line && !line.startsWith('•')) {
+                            currentSection.content += '</ul>';
+                            currentSection.hasListItems = false;
+                        }
+                        if (line) {
+                            currentSection.content += `<p style="margin: 8px 0; color: #374151; line-height: 1.6;">${line}</p>`;
+                        }
+                    }
+                }
+            });
+            
+            if (currentSection) {
+                if (currentSection.hasListItems) {
+                    currentSection.content += '</ul>';
+                }
+                sections.push(currentSection);
+            }
+            
+            return sections;
+        }
+        
+        // Function to close the summary modal
+        function closeSummaryModal() {
+            const overlay = document.querySelector('.modal-overlay');
+            const modal = document.querySelector('.call-summary-modal');
+            
+            if (overlay) overlay.remove();
+            if (modal) modal.remove();
+        }
+        
+        // Make close function globally available
+        window.closeSummaryModal = closeSummaryModal;
+    </script>
 </body>
 </html>

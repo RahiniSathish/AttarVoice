@@ -133,50 +133,99 @@ class FlightAPI:
     ) -> List[Dict[str, Any]]:
         """Generate mock flight data for demo purposes"""
         
+        # Normalize airport codes and city names
+        origin_upper = origin.upper()
+        destination_upper = destination.upper()
+        
+        # Map city names to airport codes
+        city_to_code = {
+            "BANGALORE": "BLR",
+            "BENGALURU": "BLR",
+            "JEDDAH": "JED",
+            "MUMBAI": "BOM",
+            "DELHI": "DEL",
+            "DUBAI": "DXB",
+            "RIYADH": "RUH"
+        }
+        
+        # Convert to codes if city names
+        origin_code = city_to_code.get(origin_upper, origin_upper)
+        destination_code = city_to_code.get(destination_upper, destination_upper)
+        
         # Determine if this is a Saudi Arabia route
         saudi_airports = ["RUH", "JED", "DMM", "MED", "AHB", "TIF", "TUU"]
-        is_saudi_route = origin in saudi_airports or destination in saudi_airports
+        indian_airports = ["BLR", "BOM", "DEL", "MAA", "HYD", "CCU", "COK"]
         
-        # Select airlines based on route
-        if is_saudi_route:
+        is_india_to_saudi = (origin_code in indian_airports and destination_code in saudi_airports)
+        is_saudi_to_india = (origin_code in saudi_airports and destination_code in indian_airports)
+        is_saudi_route = destination_code in saudi_airports or origin_code in saudi_airports
+        
+        # Select airlines based on route type
+        if is_india_to_saudi or is_saudi_to_india:
+            # India ↔ Saudi Arabia: Mix of Indian, Saudi, and Gulf airlines
+            airlines = ["Emirates", "Saudia", "IndiGo", "Air India", "Flynas", "Etihad"]
+            flight_duration_hours = 5  # ~5 hours for India to Saudi
+        elif is_saudi_route:
+            # Domestic Saudi routes
             airlines = ["Saudia", "Flynas", "Flyadeal"]
+            flight_duration_hours = 2
         else:
+            # Other international routes
             airlines = ["IndiGo", "Air India", "Emirates", "Vistara", "SpiceJet"]
+            flight_duration_hours = 3
         
-        base_price = self._calculate_base_price(origin, destination, cabin_class)
+        base_price = self._calculate_base_price(origin_code, destination_code, cabin_class)
         
-        # Determine currency
-        currency = "SAR" if is_saudi_route else "INR"
+        # Determine currency based on origin
+        if origin_code in indian_airports:
+            currency = "INR"
+        elif origin_code in saudi_airports:
+            currency = "SAR"
+        else:
+            currency = "USD"
         
         flights = []
         
-        for i, airline in enumerate(airlines[:3]):  # Return top 3 flights
-            departure_hour = 7 + (i * 4)  # 7am, 11am, 3pm
-            arrival_hour = departure_hour + 2  # 2 hour flight
+        # Generate more flights for better variety
+        num_flights = min(len(airlines), 6)  # Show up to 6 flights
+        
+        for i, airline in enumerate(airlines[:num_flights]):
+            # Stagger departure times throughout the day
+            departure_hour = 6 + (i * 3)  # 6am, 9am, 12pm, 3pm, 6pm, 9pm
+            if departure_hour >= 24:
+                departure_hour = departure_hour - 24
+            
+            arrival_hour = departure_hour + flight_duration_hours
+            if arrival_hour >= 24:
+                arrival_hour = arrival_hour - 24
+            
+            # Calculate minutes for variety
+            departure_minute = 30 if i % 2 == 0 else 15
+            arrival_minute = 45 if i % 2 == 0 else 20
             
             flight = {
-                "flight_id": f"FL{origin}{destination}{i+1}",
+                "flight_id": f"FL{origin_code}{destination_code}{i+1}",
                 "airline": airline,
                 "flight_number": f"{self._get_airline_code(airline)}{500+i}",
-                "origin": origin,
-                "destination": destination,
+                "origin": origin_code,
+                "destination": destination_code,
                 "departure_date": date,
-                "departure_time": f"{departure_hour:02d}:30",
-                "arrival_time": f"{arrival_hour:02d}:{'40' if i == 0 else '25'}",
-                "duration": f"{2 if i < 2 else 2}h {10 + (i*5)}m",
-                "stops": 0,  # All direct flights
+                "departure_time": f"{departure_hour:02d}:{departure_minute:02d}",
+                "arrival_time": f"{arrival_hour:02d}:{arrival_minute:02d}",
+                "duration": f"{flight_duration_hours}h {15 + (i*5)}m",
+                "stops": 0 if i < 4 else 1,  # First 4 are direct, rest have stops
                 "cabin_class": cabin_class,
-                "price": base_price + (i * 200),  # Varying prices
+                "price": base_price + (i * 150),  # Varying prices
                 "currency": currency,
-                "seats_available": 42 - (i * 5),
+                "seats_available": 45 - (i * 3),
                 "baggage": {
                     "cabin": "7kg",
-                    "checked": "15kg" if cabin_class == "economy" else "30kg"
+                    "checked": "23kg" if cabin_class == "economy" else "32kg"
                 },
                 "amenities": {
-                    "wifi": airline in ["Emirates", "Saudia"] or i == 0,
-                    "meal": cabin_class != "economy" or airline in ["Emirates", "Saudia"],
-                    "entertainment": airline in ["Emirates", "Saudia"]
+                    "wifi": airline in ["Emirates", "Saudia", "Etihad", "Air India"],
+                    "meal": True if cabin_class != "economy" or airline in ["Emirates", "Saudia", "Etihad"] else False,
+                    "entertainment": airline in ["Emirates", "Saudia", "Etihad"]
                 }
             }
             
@@ -203,17 +252,25 @@ class FlightAPI:
             ("RUH", "DOH"): 600,
             ("RUH", "BAH"): 500,
             ("RUH", "KWI"): 650,
-            # India routes (INR)
+            # India to Saudi Arabia (INR)
+            ("BLR", "JED"): 28000,
+            ("BOM", "JED"): 26000,
+            ("DEL", "JED"): 27000,
+            ("BLR", "RUH"): 30000,
+            ("BOM", "RUH"): 28000,
+            ("DEL", "RUH"): 29000,
+            # India to UAE (INR)
             ("BLR", "DXB"): 15000,
             ("BOM", "DXB"): 14000,
             ("DEL", "DXB"): 13000,
+            # Other India routes (INR)
             ("BLR", "SIN"): 18000,
             ("BOM", "LHR"): 45000,
             ("DEL", "JFK"): 65000,
         }
         
         # Try both directions
-        base = route_prices.get((origin, destination)) or route_prices.get((destination, origin), 1000)
+        base = route_prices.get((origin, destination)) or route_prices.get((destination, origin), 25000)
         
         # Class multiplier
         class_multiplier = {
@@ -239,6 +296,8 @@ class FlightAPI:
             "SpiceJet": "SG",
             # International
             "Emirates": "EK",
+            "Etihad": "EY",
+            "Qatar Airways": "QR",
         }
         return codes.get(airline, "XX")
 

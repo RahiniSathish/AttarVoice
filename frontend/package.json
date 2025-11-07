@@ -1,18 +1,12 @@
 {
-  "name": "mytrip-voicebot-chat",
+  "name": "mytrip-voice-widget",
   "version": "1.0.0",
-  "description": "Floating chat interface for MyTrip.ai voice bot",
-  "type": "module",
+  "description": "Embeddable voice assistant widget",
+  "main": "src/widget.js",
   "scripts": {
-    "start": "python -m http.server 3000",
-    "dev": "python -m http.server 3000"
+    "start": "python -m http.server 4000"
   },
-  "keywords": [
-    "chat",
-    "voice",
-    "travel",
-    "ai"
-  ],
-  "author": "MyTrip.ai",
-  "license": "MIT"
+  "dependencies": {
+    "@vapi-ai/web": "^2.5.0"
+  }
 }

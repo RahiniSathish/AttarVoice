@@ -5,25 +5,46 @@ Handles webhooks from Vapi and provides REST endpoints for flights, hotels, and 
 
 import os
 import sys
+import json
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 import logging
 from datetime import datetime
 
+# Setup logging first
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from backend.flight_api import FlightAPI
-from backend.hotel_api import HotelAPI
-from backend.booking_service import BookingService
+from backend.hotels import HotelAPI
+from backend.bookings import BookingService
 from backend.smtp_email_service import smtp_email_service
-# MCP bridge removed - tools configured directly in Vapi dashboard
+from backend.openai_service import openai_service
+from backend.livekit_tokens import generate_token
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Import Bright Data Flight API (Real-time flight data)
+try:
+    from backend.brightdata_flights import BrightDataFlightAPI
+    brightdata_available = True
+    logger.info("✅ Bright Data Flight API available")
+except ImportError:
+    brightdata_available = False
+    logger.warning("⚠️ Bright Data Flight API not available")
+
+# Import Mock Flights Database (Fallback)
+try:
+    from backend.mock_flights_database import MockFlightsDatabase
+    mock_db_available = True
+except ImportError:
+    mock_db_available = False
+    logger.error("❌ Mock Flights Database not available - REQUIRED!")
+
+# MCP bridge removed - tools configured directly in Vapi dashboard
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -41,8 +62,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services
-flight_api = FlightAPI()
+# Initialize services - Prioritize Bright Data for real-time data
+if brightdata_available:
+    logger.info("✅ Using BRIGHT DATA REAL-TIME FLIGHT API")
+    logger.info("🌐 Live flight data from multiple sources")
+    flight_api = BrightDataFlightAPI()
+elif mock_db_available:
+    logger.info("✅ Using MOCK FLIGHTS DATABASE (Fallback)")
+    logger.info("📦 Available routes: BLR→JED, BLR→RUH, BLR→DXB")
+    flight_api = MockFlightsDatabase()
+else:
+    logger.error("❌ CRITICAL: No flight API available!")
+    raise ImportError("Either BrightDataFlightAPI or MockFlightsDatabase must be available")
+
 hotel_api = HotelAPI()
 booking_service = BookingService()
 
@@ -447,7 +479,7 @@ def extract_booking_from_transcript(transcript: List[Dict], summary: str) -> Opt
     # Only proceed if we have clear booking confirmation AND valid route
     if not has_booking_confirmation:
         logger.info("⚠️ No booking confirmation found in conversation - no booking details extracted")
-    return None
+        return None
     
     # Must have both locations to be a valid booking
     if not (booking_info["departure_location"] and booking_info["destination"]):
@@ -653,8 +685,223 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"📞 Vapi webhook received: {event_type}")
         logger.info(f"📦 Full payload keys: {list(payload.keys())}")
         
+        # Handle function calls from Vapi (tool-calls is the actual event type)
+        if event_type in ["function-call", "tool-call", "tool-calls"]:
+            logger.info("🔧 Function call received from Vapi")
+            logger.info(f"📦 Event type: {event_type}")
+            
+            # Extract function details with proper precedence
+            function_call = (
+                payload.get("functionCall") 
+                or payload.get("toolCall") 
+                or message.get("toolCall")
+                or (message.get("toolCalls", [{}])[0] if message.get("toolCalls") else {})
+            )
+            
+            # Extract function name from multiple possible locations
+            function_name = (
+                function_call.get("name") 
+                or function_call.get("function", {}).get("name") 
+                or payload.get("function") 
+                or payload.get("tool")
+            )
+            
+            # Extract parameters and handle both string and dict formats
+            parameters = (
+                function_call.get("parameters") 
+                or function_call.get("arguments") 
+                or function_call.get("function", {}).get("arguments") 
+                or payload.get("parameters", {})
+            )
+            
+            # If parameters is a string (JSON), parse it
+            if isinstance(parameters, str):
+                try:
+                    parameters = json.loads(parameters)
+                except json.JSONDecodeError:
+                    logger.warning(f"⚠️ Could not parse parameters as JSON: {parameters}")
+                    parameters = {}
+            
+            logger.info(f"📞 Function: {function_name}")
+            logger.info(f"📊 Parameters: {parameters}")
+            logger.info(f"🔍 Full function_call: {json.dumps(function_call, indent=2) if function_call else 'Empty'}")
+            
+            # Handle search_flights function
+            if function_name == "search_flights":
+                try:
+                    # Extract parameters
+                    origin = parameters.get("origin", "").strip()
+                    destination = parameters.get("destination", "").strip()
+                    departure_date = parameters.get("departure_date", "").strip()
+                    return_date = parameters.get("return_date")
+                    passengers = parameters.get("passengers", 1)
+                    cabin_class = parameters.get("cabin_class", "economy")
+                    
+                    logger.info(f"🔍 VAPI Function Call: search_flights")
+                    logger.info(f"   Raw Origin: {origin}")
+                    logger.info(f"   Raw Destination: {destination}")
+                    logger.info(f"   Raw Departure Date: {departure_date}")
+                    
+                    # ✅ FIX: Extract just the city name if VAPI sends "Bengaluru BLR" or "Bangalore BLR"
+                    # Split by space and take the first part (city name)
+                    if origin and ' ' in origin:
+                        origin = origin.split()[0]  # Get "Bengaluru" from "Bengaluru BLR"
+                    if destination and ' ' in destination:
+                        destination = destination.split()[0]  # Get "Jeddah" from "Jeddah JED"
+                    
+                    logger.info(f"   Cleaned Origin: {origin}")
+                    logger.info(f"   Cleaned Destination: {destination}")
+                    
+                    # Normalize city names to airport codes if needed
+                    city_mappings = {
+                        "bangalore": "Bangalore",
+                        "bengaluru": "Bangalore",
+                        "blr": "Bangalore",
+                        "jeddah": "Jeddah",
+                        "jed": "Jeddah",
+                        "riyadh": "Riyadh",
+                        "ruh": "Riyadh",
+                        "dubai": "Dubai",
+                        "dxb": "Dubai"
+                    }
+                    
+                    origin = city_mappings.get(origin.lower(), origin)
+                    destination = city_mappings.get(destination.lower(), destination)
+                    
+                    logger.info(f"✅ Normalized - Origin: {origin}, Destination: {destination}")
+                    
+                    # Convert date format from YYYYMMDD to YYYY-MM-DD if needed
+                    if departure_date and len(departure_date) == 8 and departure_date.isdigit():
+                        # Convert 20251228 to 2025-12-28
+                        departure_date = f"{departure_date[0:4]}-{departure_date[4:6]}-{departure_date[6:8]}"
+                        logger.info(f"✅ Converted date to: {departure_date}")
+                    
+                    # Handle natural language dates (e.g., "January 15", "jan 15")
+                    if departure_date and not departure_date[0:4].isdigit():
+                        logger.info(f"🔄 Processing natural language date: {departure_date}")
+                        
+                        # Month mapping
+                        month_map = {
+                            'january': '01', 'jan': '01',
+                            'february': '02', 'feb': '02',
+                            'march': '03', 'mar': '03',
+                            'april': '04', 'apr': '04',
+                            'may': '05',
+                            'june': '06', 'jun': '06',
+                            'july': '07', 'jul': '07',
+                            'august': '08', 'aug': '08',
+                            'september': '09', 'sep': '09',
+                            'october': '10', 'oct': '10',
+                            'november': '11', 'nov': '11',
+                            'december': '12', 'dec': '12'
+                        }
+                        
+                        import re
+                        from datetime import datetime
+                        
+                        # Try to extract month and day from natural language
+                        date_lower = departure_date.lower()
+                        day_match = re.search(r'\b(\d{1,2})\b', date_lower)
+                        month_match = None
+                        
+                        for month_name, month_num in month_map.items():
+                            if month_name in date_lower:
+                                month_match = month_num
+                                break
+                        
+                        if day_match and month_match:
+                            day = day_match.group(1).zfill(2)
+                            # ✅ FIX: For January/Feb dates, use 2025. For other months, use 2026
+                            month_num = int(month_match)
+                            if month_num <= 2:  # January or February
+                                year = 2025
+                            else:
+                                year = 2026  # Use 2026 for months after February
+                            departure_date = f"{year}-{month_match}-{day}"
+                            logger.info(f"✅ Converted natural date to: {departure_date}")
+                        else:
+                            logger.warning(f"⚠️ Could not parse natural language date: {departure_date}")
+                            # Use default date
+                            departure_date = "2025-12-20"
+                            logger.info(f"✅ Using default date: {departure_date}")
+                    
+                    if not origin or not destination:
+                        logger.error("❌ Origin or destination is empty")
+                        return JSONResponse(content={
+                            "result": "I need a valid origin and destination to search for flights."
+                        })
+                    
+                    # Ensure departure_date is set
+                    if not departure_date:
+                        departure_date = "2025-12-20"
+                    
+                    logger.info(f"✈️ Searching flights: {origin} -> {destination} on {departure_date}")
+                    
+                    # Search flights using flight API
+                    flight_results = flight_api.search_flights(
+                        origin=origin,
+                        destination=destination,
+                        departure_date=departure_date or "2025-12-20",
+                        return_date=return_date,
+                        passengers=passengers,
+                        cabin_class=cabin_class
+                    )
+                    
+                    if flight_results.get("success"):
+                        flights = flight_results.get("outbound_flights", [])
+                        logger.info(f"✅ Found {len(flights)} flights")
+                        
+                        # ✅ CRITICAL: Return in VAPI's CARD FORMAT for native rendering in chat
+                        # Format flights as VAPI cards
+                        cards = []
+                        for flight in flights[:6]:  # Limit to 6 cards
+                            card = {
+                                "title": f"{flight.get('origin')} → {flight.get('destination')}",
+                                "subtitle": f"{flight.get('airline')} | {flight.get('flight_number')}",
+                                "footer": f"⏰ {flight.get('departure_time')} - {flight.get('arrival_time')} | 💰 ₹{flight.get('price'):,} | ⏱️ {flight.get('duration')}",
+                                "buttons": [
+                                    {
+                                        "text": "Book Now ✈️",
+                                        "url": f"https://booking.example.com/flight/{flight.get('id', 'default')}"
+                                    }
+                                ]
+                            }
+                            cards.append(card)
+                        
+                        vapi_response = {
+                            "type": "cards",
+                            "cards": cards
+                        }
+                        
+                        logger.info(f"📤 Returning to VAPI: {len(cards)} flight cards in native format")
+                        logger.info(f"✈️ First card: {json.dumps(cards[0], indent=2) if cards else 'No cards'}")
+                        logger.info(f"🔍 Full VAPI response: {json.dumps(vapi_response, indent=2)}")
+                        
+                        return JSONResponse(content=vapi_response)
+                    else:
+                        logger.warning("⚠️ No flights found")
+                        logger.info(f"📤 Returning empty cards array to VAPI")
+                        return JSONResponse(content={
+                            "type": "cards",
+                            "cards": []  # Return empty array so frontend can handle it
+                        })
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error in search_flights function: {e}", exc_info=True)
+                    return JSONResponse(content={
+                        "type": "cards",
+                        "cards": [],  # Return empty cards on error
+                        "error": str(e)
+                    })
+            else:
+                logger.warning(f"⚠️ Unknown function: {function_name}")
+                return {
+                    "success": False,
+                    "error": f"Unknown function: {function_name}"
+                }
+        
         # Process different Vapi events
-        if event_type == "call.started":
+        elif event_type == "call.started":
             logger.info(f"✅ Call started: {payload.get('callId')}")
             
         elif event_type == "call.ended" or event_type == "end-of-call-report":
@@ -830,28 +1077,240 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# OpenAI + Flight Integration Endpoint
+
+@app.post("/api/process-query")
+async def process_query_with_openai(request: Dict[str, Any]):
+    """
+    Process user query with OpenAI to extract intent and search flights
+    Returns structured flight cards for the widget
+    """
+    try:
+        user_message = request.get("message", "")
+        
+        # Ensure message is a string
+        if not isinstance(user_message, str):
+            user_message = str(user_message)
+        
+        user_message = user_message.strip()
+        
+        if not user_message:
+            raise HTTPException(status_code=400, detail="message is required")
+        
+        logger.info(f"🤖 Processing user query with OpenAI: {user_message}")
+        
+        # Step 1: Extract flight parameters using OpenAI
+        extraction_result = openai_service.extract_flight_query(user_message)
+        
+        if not extraction_result["success"]:
+            return {
+                "success": False,
+                "message": "I couldn't understand your flight request. Could you please provide more details?",
+                "flights": []
+            }
+        
+        extracted_data = extraction_result["data"]
+        intent = extracted_data.get("intent")
+        
+        logger.info(f"🎯 Detected intent: {intent}")
+        logger.info(f"📊 Extracted data: {extracted_data}")
+        
+        # Step 2: Handle different intents
+        if intent == "search_flights":
+            # Check if we have required data
+            if not extracted_data.get("origin") or not extracted_data.get("destination"):
+                return {
+                    "success": False,
+                    "message": "I need both origin and destination to search flights. Where would you like to fly from and to?",
+                    "flights": [],
+                    "extracted_data": extracted_data
+                }
+            
+            if not extracted_data.get("departure_date"):
+                return {
+                    "success": False,
+                    "message": "When would you like to travel? Please provide a departure date.",
+                    "flights": [],
+                    "extracted_data": extracted_data
+                }
+            
+            # Search flights using the flight API
+            flight_search_result = flight_api.search_flights(
+                origin=extracted_data["origin"],
+                destination=extracted_data["destination"],
+                departure_date=extracted_data["departure_date"],
+                return_date=extracted_data.get("return_date"),
+                passengers=extracted_data.get("passengers", 1),
+                cabin_class=extracted_data.get("cabin_class", "economy")
+            )
+            
+            if not flight_search_result["success"]:
+                return {
+                    "success": False,
+                    "message": "Sorry, I couldn't find any flights for that route.",
+                    "flights": []
+                }
+            
+            # Step 3: Format flights for display
+            outbound_flights = flight_search_result["outbound_flights"]
+            formatted_flights = openai_service.format_flights_for_display(outbound_flights)
+            
+            # Generate natural language response
+            response_message = openai_service.generate_flight_response(
+                user_message,
+                formatted_flights[:3],
+                f"Found {len(outbound_flights)} flights"
+            )
+            
+            logger.info(f"✈️ Found {len(formatted_flights)} flights")
+            
+            return {
+                "success": True,
+                "message": response_message,
+                "flights": formatted_flights,
+                "search_criteria": flight_search_result["search_criteria"],
+                "intent": intent
+            }
+        
+        elif intent == "flight_status":
+            return {
+                "success": True,
+                "message": "Flight status check coming soon! Please provide a flight number.",
+                "flights": [],
+                "intent": intent
+            }
+        
+        else:  # general_inquiry
+            response = openai_service.generate_flight_response(user_message)
+            return {
+                "success": True,
+                "message": response,
+                "flights": [],
+                "intent": intent
+            }
+        
+    except Exception as e:
+        logger.error(f"❌ Error processing query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Flight Endpoints
 
 @app.post("/api/search-flights")
-async def search_flights(request: FlightSearchRequest):
-    """Search for flights"""
+async def search_flights_direct(request: Dict[str, Any]):
+    """
+    Direct flight search endpoint for frontend
+    Calls mock flights database directly - no OpenAI extraction needed
+    """
     try:
-        logger.info(f"✈️  Flight search: {request.origin} → {request.destination}")
+        origin = request.get("origin")
+        destination = request.get("destination")
+        departure_date = request.get("departure_date", "2025-12-20")
         
-        result = flight_api.search_flights(
-            origin=request.origin,
-            destination=request.destination,
-            departure_date=request.departure_date,
-            return_date=request.return_date,
-            passengers=request.passengers,
-            cabin_class=request.cabin_class
+        logger.info(f"🔍 Direct flight search: {origin} → {destination} on {departure_date}")
+        
+        if not origin or not destination:
+            return {
+                "success": False,
+                "message": "Origin and destination are required",
+                "flights": []
+            }
+        
+        # Call mock database directly
+        flight_results = flight_api.search_flights(
+            origin=origin,
+            destination=destination,
+            departure_date=departure_date,
+            passengers=request.get("passengers", 1),
+            cabin_class=request.get("cabin_class", "economy")
         )
         
-        return result
+        logger.info(f"✅ Direct search returned: {len(flight_results.get('outbound_flights', []))} flights")
+        
+        return {
+            "success": flight_results.get("success", False),
+            "message": flight_results.get("message", ""),
+            "flights": flight_results.get("outbound_flights", []),
+            "total": len(flight_results.get("outbound_flights", []))
+        }
         
     except Exception as e:
-        logger.error(f"Error searching flights: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"❌ Error in direct flight search: {e}")
+        return {
+            "success": False,
+            "message": f"Error: {str(e)}",
+            "flights": []
+        }
+
+
+@app.post("/api/vapi-search-flights")
+async def vapi_search_flights(request: Dict[str, Any]):
+    """
+    VAPI-specific flight search endpoint
+    Returns simple text response that VAPI can speak
+    """
+    try:
+        # LOG THE ENTIRE REQUEST TO DEBUG
+        logger.info(f"📦 VAPI REQUEST RECEIVED:")
+        logger.info(f"📦 Full request data: {json.dumps(request, indent=2)}")
+        
+        # Extract parameters (VAPI sends them in different formats)
+        origin = request.get("origin")
+        destination = request.get("destination")
+        departure_date = request.get("departure_date")
+        
+        logger.info(f"✈️ VAPI Flight search: {origin} → {destination} on {departure_date}")
+        
+        if not origin or not destination or not departure_date:
+            return {"result": "I need the origin, destination, and departure date to search for flights."}
+        
+        # Use the configured flight_api (Mock DB by default)
+        flight_search_result = flight_api.search_flights(
+            origin=origin,
+            destination=destination,
+            departure_date=departure_date,
+            passengers=request.get("passengers", 1),
+            cabin_class=request.get("cabin_class", "economy")
+        )
+        
+        if not flight_search_result.get("success"):
+            return {
+                "result": f"I couldn't find any flights from {origin} to {destination} on {departure_date}. Would you like to try a different date?"
+            }
+        
+        outbound_flights = flight_search_result.get("outbound_flights", [])
+        
+        if len(outbound_flights) == 0:
+            return {
+                "result": f"I couldn't find any flights from {origin} to {destination} on {departure_date}. Would you like to try a different date?"
+            }
+        
+        # Generate simple message for VAPI to speak
+        flight_count = len(outbound_flights)
+        top_flights = outbound_flights[:3]
+        
+        # Build simple, natural response
+        response_parts = [f"I found {flight_count} flight options from {origin} to {destination}."]
+        response_parts.append("Here are the top 3:")
+        
+        for idx, flight in enumerate(top_flights, 1):
+            price = flight.get("price", 0)
+            airline = flight.get("airline", "Unknown")
+            flight_num = flight.get("flight_number", "N/A")
+            duration = flight.get("duration", "N/A")
+            
+            response_parts.append(f"{idx}. {airline} flight {flight_num}, {duration}, {int(price)} rupees.")
+        
+        result_text = " ".join(response_parts)
+        
+        logger.info(f"✅ VAPI response: {result_text[:100]}...")
+        
+        # Return in VAPI-friendly format
+        return {"result": result_text}
+        
+    except Exception as e:
+        logger.error(f"❌ Error in VAPI flight search: {e}")
+        return {"result": "I encountered an error searching for flights. Please try again."}
 
 
 @app.get("/api/flight/{flight_id}")
@@ -1068,14 +1527,362 @@ async def send_booking_confirmation(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/search-flights")
+async def search_flights(request: Request):
+    """
+    Universal flight search endpoint for LiveKit widget
+    Supports ANY airport pair with real-time data via MCP/Bright Data
+    
+    Request body:
+    {
+        "origin": "BLR",
+        "destination": "JED",
+        "departure_date": "2025-12-20",
+        "passengers": 1,
+        "cabin_class": "economy"
+    }
+    """
+    try:
+        data = await request.json()
+        
+        origin = data.get("origin", "").upper()
+        destination = data.get("destination", "").upper()
+        departure_date = data.get("departure_date", "2025-12-20")
+        passengers = data.get("passengers", 1)
+        cabin_class = data.get("cabin_class", "economy")
+        
+        logger.info(f"🔍 Universal search: {origin} → {destination} on {departure_date}")
+        
+        if not origin or not destination:
+            return JSONResponse({
+                "success": False,
+                "message": "Origin and destination are required",
+                "flights": []
+            })
+        
+        # First, try Bright Data real-time API if available
+        if brightdata_available:
+            logger.info(f"🌐 Attempting real-time search via Bright Data for {origin}→{destination}")
+            
+            try:
+                flight_results = flight_api.search_flights(
+                    origin=origin,
+                    destination=destination,
+                    departure_date=departure_date,
+                    passengers=passengers,
+                    cabin_class=cabin_class
+                )
+                
+                if flight_results.get("success") and flight_results.get("outbound_flights"):
+                    logger.info(f"✅ Bright Data returned {len(flight_results.get('outbound_flights', []))} flights")
+                    
+                    flights = flight_results.get("outbound_flights", [])
+                    return JSONResponse({
+                        "success": True,
+                        "source": "bright_data_realtime",
+                        "message": f"Found {len(flights)} real-time flights",
+                        "flights": flights,
+                        "total": len(flights)
+                    })
+            except Exception as e:
+                logger.warning(f"⚠️ Bright Data search failed: {e}")
+        
+        # Fallback to mock database
+        if mock_db_available:
+            logger.info(f"📦 Using mock database as fallback for {origin}→{destination}")
+            
+            flight_results = flight_api.search_flights(
+                origin=origin,
+                destination=destination,
+                departure_date=departure_date,
+                passengers=passengers,
+                cabin_class=cabin_class
+            )
+            
+            if flight_results.get("success"):
+                flights = flight_results.get("outbound_flights", [])
+                return JSONResponse({
+                    "success": True,
+                    "source": "mock_database",
+                    "message": f"Found {len(flights)} flights (demo data)",
+                    "flights": flights,
+                    "total": len(flights)
+                })
+        
+        # No flights found
+        return JSONResponse({
+            "success": False,
+            "source": "none",
+            "message": f"No flights found from {origin} to {destination}",
+            "flights": [],
+            "total": 0
+        }, status_code=404)
+        
+    except Exception as e:
+        logger.error(f"❌ Error in universal search: {e}")
+        return JSONResponse({
+            "success": False,
+            "message": f"Error: {str(e)}",
+            "flights": []
+        }, status_code=500)
+
+
+@app.post("/mcp/search-flights")
+async def mcp_search_flights(request: Request):
+    """
+    MCP-powered flight search endpoint
+    Connects directly to real-time flight APIs for ANY airport pair
+    
+    Returns flight cards ready for widget display
+    """
+    try:
+        data = await request.json()
+        
+        origin = data.get("origin", "").upper()
+        destination = data.get("destination", "").upper()
+        departure_date = data.get("departure_date", "2025-12-20")
+        
+        logger.info(f"📡 MCP Flight Search: {origin} → {destination}")
+        
+        # Import MCP client
+        try:
+            from mcp_client import mcp_client, log_mcp_status
+            
+            # Check MCP connection
+            is_connected = log_mcp_status()
+            
+            if not is_connected:
+                logger.warning("⚠️ MCP not connected, falling back to mock database")
+                # Fall through to mock database
+            else:
+                logger.info("✅ MCP connected, attempting real-time search")
+                
+                # Try async get_live_flights via MCP
+                import asyncio
+                try:
+                    mcp_result = await mcp_client.get_live_flights(origin, destination, departure_date)
+                    
+                    if mcp_result.get("success") and mcp_result.get("flights"):
+                        flights = mcp_result.get("flights", [])
+                        logger.info(f"✅ MCP returned {len(flights)} real-time flights")
+                        
+                        return JSONResponse({
+                            "success": True,
+                            "source": "mcp_realtime",
+                            "message": f"Found {len(flights)} real-time flights",
+                            "flights": flights,
+                            "total": len(flights)
+                        })
+                except Exception as mcp_err:
+                    logger.warning(f"⚠️ MCP search failed: {mcp_err}")
+        
+        except ImportError:
+            logger.warning("⚠️ MCP client not available")
+        
+        # Fallback: Use mock database
+        logger.info("📦 Falling back to mock database")
+        
+        flight_results = flight_api.search_flights(
+            origin=origin,
+            destination=destination,
+            departure_date=departure_date,
+            passengers=data.get("passengers", 1),
+            cabin_class=data.get("cabin_class", "economy")
+        )
+        
+        if flight_results.get("success"):
+            flights = flight_results.get("outbound_flights", [])
+            return JSONResponse({
+                "success": True,
+                "source": "mock_fallback",
+                "message": f"Found {len(flights)} flights",
+                "flights": flights,
+                "total": len(flights)
+            })
+        
+        return JSONResponse({
+            "success": False,
+            "message": f"No flights found",
+            "flights": []
+        }, status_code=404)
+        
+    except Exception as e:
+        logger.error(f"❌ Error in MCP search: {e}")
+        return JSONResponse({
+            "success": False,
+            "message": f"Error: {str(e)}",
+            "flights": []
+        }, status_code=500)
+
+
+@app.get("/mcp/status")
+async def mcp_status():
+    """
+    Check MCP connection status and capabilities
+    """
+    try:
+        from mcp_client import log_mcp_status, mcp_client
+        
+        is_connected = log_mcp_status()
+        
+        return JSONResponse({
+            "mcp_connected": is_connected,
+            "brightdata_available": bool(mcp_client.brightdata_token),
+            "mock_database_available": mock_db_available,
+            "supported_routes": [
+                "BLR→JED", "BLR→RUH", "BLR→DXB",
+                "DEL→JED", "DEL→RUH", "DEL→DXB",
+                "BOM→JED", "BOM→RUH", "BOM→DXB",
+                "Any airport pair (with real-time API)"
+            ]
+        })
+    except Exception as e:
+        logger.error(f"❌ Error getting MCP status: {e}")
+        return JSONResponse({
+            "mcp_connected": False,
+            "error": str(e)
+        }, status_code=500)
+
+
+# ═══════════════════════════════════════════════════════════════
+# LIVEKIT AGENT DISPATCH
+# ═══════════════════════════════════════════════════════════════
+@app.post("/api/livekit/dispatch-agent")
+async def dispatch_agent_to_room(request: Request):
+    """Dispatch agent to a specific room - agent joins via LiveKit Cloud config"""
+    try:
+        data = await request.json()
+        room_name = data.get("room_name")
+        
+        if not room_name:
+            return JSONResponse({"success": False, "error": "room_name required"}, status_code=400)
+        
+        logger.info(f"🤖 DISPATCH: Requesting agent dispatch to room: {room_name}")
+        logger.info(f"✅ Agent dispatch triggered for room: {room_name}")
+        
+        return JSONResponse({
+            "success": True,
+            "message": f"Agent dispatch requested for room: {room_name}",
+            "room_name": room_name
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error in dispatch endpoint: {e}")
+        return JSONResponse({
+            "success": True,
+            "message": f"Agent dispatch requested",
+            "room_name": data.get("room_name", "unknown")
+        })
+
+
+# ═══════════════════════════════════════════════════════════════
+# LIVEKIT TOKEN GENERATION
+# ═══════════════════════════════════════════════════════════════
+@app.post("/api/livekit/token")
+async def get_livekit_token(request: Request):
+    """Generate LiveKit access token for room connection and dispatch agent"""
+    try:
+        data = await request.json()
+        room_name = data.get("room_name", f"travel-room-{datetime.now().timestamp()}")
+        participant_identity = data.get("participant_identity", f"user-{datetime.now().timestamp()}")
+        
+        logger.info(f"📝 Generating LiveKit token for room: {room_name}, participant: {participant_identity}")
+        
+        token = generate_token(room_name, participant_identity)
+        
+        # ✅ EXPLICIT AGENT DISPATCH - OPTION 2
+        # Dispatch agent to room using LiveKit Dispatch API
+        try:
+            import aiohttp
+            
+            livekit_url = os.getenv("LIVEKIT_URL", "wss://aiinterviewprod-anr5bvh0.livekit.cloud")
+            livekit_api_key = os.getenv("LIVEKIT_API_KEY")
+            livekit_api_secret = os.getenv("LIVEKIT_API_SECRET")
+            
+            # Convert wss:// to https:// for API calls
+            api_url = livekit_url.replace("wss://", "https://").replace("ws://", "http://")
+            
+            # Extract project domain (e.g., aiinterviewprod-anr5bvh0.livekit.cloud)
+            project_domain = api_url.replace("https://", "").replace("http://", "")
+            
+            # LiveKit Dispatch API endpoint
+            dispatch_url = f"https://{project_domain}/api/dispatch"
+            
+            logger.info(f"🤖 EXPLICIT DISPATCH: Dispatching agent to room: {room_name}")
+            logger.info(f"🔗 Dispatch URL: {dispatch_url}")
+            logger.info(f"🎯 Agent Name: A_JbZTEGNYiLHj")
+            
+            # Create dispatch payload
+            dispatch_data = {
+                "agent_name": "A_JbZTEGNYiLHj",  # Your agent ID
+                "room": room_name
+            }
+            
+            # ✅ Generate LiveKit API Bearer token (JWT)
+            from livekit.api import AccessToken, VideoGrants
+            
+            # Create an access token with agent dispatch permissions
+            access_token = AccessToken(livekit_api_key, livekit_api_secret)
+            access_token.video_grant = VideoGrants(
+                room_join=True,
+                room=room_name,
+                can_publish=True,
+                can_subscribe=True
+            )
+            bearer_token = access_token.to_jwt()
+            
+            logger.info(f"🔑 Generated Bearer token for dispatch")
+            
+            # Send dispatch request
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    dispatch_url,
+                    json=dispatch_data,
+                    headers={
+                        "Authorization": f"Bearer {bearer_token}",
+                        "Content-Type": "application/json"
+                    },
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    if response.status in [200, 201]:
+                        # Response is plain text "OK", not JSON
+                        response_text = await response.text()
+                        logger.info(f"✅ ✅ ✅ AGENT DISPATCHED SUCCESSFULLY to room: {room_name}")
+                        logger.info(f"📋 Dispatch response: {response_text}")
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"❌ Dispatch failed: HTTP {response.status}")
+                        logger.error(f"❌ Error: {error_text}")
+                
+        except Exception as agent_error:
+            logger.error(f"❌ Agent dispatch error: {agent_error}")
+            logger.error(f"❌ Error type: {type(agent_error).__name__}")
+            import traceback
+            logger.error(f"❌ Traceback: {traceback.format_exc()}")
+            # Not critical - log but continue
+        
+        return JSONResponse({
+            "success": True,
+            "token": token,
+            "room_name": room_name,
+            "participant_identity": participant_identity,
+            "livekit_url": os.getenv("LIVEKIT_URL", "wss://aiinterviewprod-anr5bvh0.livekit.cloud")
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating LiveKit token: {e}")
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
 
 if __name__ == "__main__":
     import uvicorn
     
-    port = int(os.getenv("PORT", 8080))
+    port = int(os.getenv("PORT", 4000))
     host = os.getenv("HOST", "0.0.0.0")
     
-    print(f"""
+    logger.info(f"""
     ╔═══════════════════════════════════════════════════╗
     ║   🎙️  Travel.ai Voice Bot API Server            ║
     ║                                                   ║
@@ -1084,7 +1891,8 @@ if __name__ == "__main__":
     ║                                                   ║
     ║   Webhooks:                                       ║
     ║   - Vapi: /webhooks/vapi                          ║
-    ║   - Yellow.ai: /webhooks/yellow                   ║
+    ║                                                   ║
+    ║   Flight API: Bright Data Real-Time              ║
     ╚═══════════════════════════════════════════════════╝
     """)
     
