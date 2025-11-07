@@ -14,7 +14,7 @@ class MockFlightsDatabase:
     
     def __init__(self):
         self.flights_db = self._initialize_flights()
-        logger.info("✅ Mock Flights Database initialized")
+        logger.info(" Mock Flights Database initialized")
     
     def _initialize_flights(self) -> Dict[str, List[Dict[str, Any]]]:
         """Initialize static flight database"""
@@ -301,12 +301,12 @@ class MockFlightsDatabase:
             dest_code = self._normalize_city(destination)
             route_key = f"{origin_code}-{dest_code}"
             
-            logger.info(f"🔍 Mock DB Search: {origin} ({origin_code}) → {destination} ({dest_code})")
+            logger.info(f" Mock DB Search: {origin} ({origin_code}) → {destination} ({dest_code})")
             logger.info(f"📅 Date: {departure_date}, Passengers: {passengers}, Class: {cabin_class}")
             
             # Check if route exists in database, if not generate dynamic flights
             if route_key not in self.flights_db:
-                logger.warning(f"⚠️ Route {route_key} not in mock database - generating dynamic flights")
+                logger.warning(f" Route {route_key} not in mock database - generating dynamic flights")
                 flights = self._generate_dynamic_flights(origin, destination, origin_code, dest_code)
             else:
                 # Get flights for this route
@@ -324,7 +324,7 @@ class MockFlightsDatabase:
                 flight["arrival_time"] = flight["to"]["time"]
                 flight["flight_id"] = flight["id"]
             
-            logger.info(f"✅ Found {len(flights)} flights for route {route_key}")
+            logger.info(f" Found {len(flights)} flights for route {route_key}")
             
             return {
                 "success": True,
@@ -343,7 +343,7 @@ class MockFlightsDatabase:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error in mock flight search: {e}")
+            logger.error(f" Error in mock flight search: {e}")
             return {
                 "success": False,
                 "message": "Error searching flights",

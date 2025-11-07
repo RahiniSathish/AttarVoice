@@ -14,41 +14,36 @@ const FlightCard = ({ flight }) => {
 
   return (
     <div className="flight-card-modern">
-      {/* Header: Route */}
-      <div className="flight-header">
-        <h3 className="route">{origin} → {destination}</h3>
-        <span className="airline-badge">{airline}</span>
+      {/* Route Header */}
+      <div className="flight-route">
+        <span className="route-text">{origin} → {destination}</span>
       </div>
 
-      {/* Times Section */}
-      <div className="flight-times">
-        <div className="time-block">
-          <div className="time-label">Departure</div>
-          <div className="time-value">{departureTime}</div>
+      {/* Airline Info */}
+      <div className="flight-airline">
+        <span className="airline-text">{airline} | {flightNumber}</span>
+      </div>
+
+      {/* Flight Details - Time, Price, Duration */}
+      <div className="flight-details">
+        <div className="detail-item">
+          <span className="detail-icon">🕐</span>
+          <span className="detail-text">{departureTime} - {arrivalTime}</span>
         </div>
-        
-        <div className="time-block">
-          <div className="time-label">Arrival</div>
-          <div className="time-value">{arrivalTime}</div>
+        <div className="detail-item">
+          <span className="detail-icon">💰</span>
+          <span className="detail-text">₹{price}</span>
         </div>
-        
-        <div className="time-block">
-          <div className="time-label">Duration</div>
-          <div className="time-value">{duration}</div>
+        <div className="detail-item">
+          <span className="detail-icon">⏱️</span>
+          <span className="detail-text">{duration}</span>
         </div>
       </div>
 
-      {/* Price & Book Section */}
-      <div className="flight-footer">
-        <div className="price-section">
-          <div className="price-label">Total Price</div>
-          <div className="price-value">₹{price}</div>
-        </div>
-        
-        <button className="book-button">
-          Book {flightNumber} ✈️
-        </button>
-      </div>
+      {/* Book Button */}
+      <button className="book-button">
+        Book Now ✈️
+      </button>
     </div>
   );
 };

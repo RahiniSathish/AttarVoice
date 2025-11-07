@@ -22,20 +22,10 @@ logger = logging.getLogger(__name__)
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from backend.hotels_api import HotelAPI
 from backend.bookings import BookingService
 from backend.email_service import smtp_email_service
 # from backend.openai_service import openai_service  # Disabled: Using Vapi for AI responses instead
 openai_service = None  # Placeholder - not needed for Vapi webhook
-
-# Import Bright Data Flight API (Real-time flight data)
-try:
-    from backend.brightdata_flights import BrightDataFlightAPI
-    brightdata_available = True
-    logger.info("✅ Bright Data Flight API available")
-except ImportError:
-    brightdata_available = False
-    logger.warning("⚠️ Bright Data Flight API not available")
 
 # Import Mock Flights Database (Fallback)
 try:
@@ -43,16 +33,16 @@ try:
     mock_db_available = True
 except ImportError:
     mock_db_available = False
-    logger.error("❌ Mock Flights Database not available - REQUIRED!")
+    logger.error("Mock Flights Database not available - REQUIRED!")
 
-# ⭐ Import Mock Hotels Database
+# Import Mock Hotels Database
 try:
     from backend.mock_hotels import MockHotelsDatabase
     mock_hotels_db_available = True
-    logger.info("✅ Mock Hotels Database available")
+    logger.info("Mock Hotels Database available")
 except ImportError:
     mock_hotels_db_available = False
-    logger.error("❌ Mock Hotels Database not available!")
+    logger.error("Mock Hotels Database not available!")
 
 # MCP bridge removed - tools configured directly in Vapi dashboard
 
@@ -63,10 +53,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# ⭐ In-memory cache for flight cards (call_id -> cards)
+# In-memory cache for flight cards (call_id -> cards)
 flight_cards_cache = {}
 
-# ⭐ In-memory cache for hotel cards (call_id -> cards)
+# In-memory cache for hotel cards (call_id -> cards)
 hotel_cards_cache = {}
 
 # CORS middleware
@@ -78,32 +68,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services - Prioritize Bright Data for real-time data
+# Initialize services - Use Mock databases only
 if mock_db_available:
-    logger.info("✅ Using MOCK FLIGHTS DATABASE (Primary for testing)")
-    logger.info("📦 Available routes: BLR→JED, BLR→RUH, BLR→DXB, BLR→CCU, MAA→DXB")
+    logger.info("Using MOCK FLIGHTS DATABASE")
+    logger.info("Available routes: BLR->JED, BLR->RUH, BLR->DXB, BLR->CCU, MAA->DXB")
     flight_api = MockFlightsDatabase()
-elif brightdata_available:
-    logger.info("✅ Using BRIGHT DATA REAL-TIME FLIGHT API (Fallback)")
-    logger.info("🌐 Live flight data from multiple sources")
-    flight_api = BrightDataFlightAPI()
 else:
-    logger.error("❌ CRITICAL: No flight API available!")
-    raise ImportError("Either MockFlightsDatabase or BrightDataFlightAPI must be available")
+    logger.error("CRITICAL: Mock Flights Database not available!")
+    raise ImportError("MockFlightsDatabase must be available")
 
-# ⭐ Initialize hotels database - Prioritize Mock for testing
+# Initialize hotels database - Use Mock database only
 if mock_hotels_db_available:
-    logger.info("✅ Using MOCK HOTELS DATABASE (Primary for testing)")
-    logger.info("📦 Available cities: Riyadh, Jeddah, Al-Ula, Abha, Dammam")
+    logger.info("Using MOCK HOTELS DATABASE")
+    logger.info("Available cities: Riyadh, Jeddah, Al-Ula, Abha, Dammam")
     hotel_api = MockHotelsDatabase()
 else:
-    logger.info("✅ Using fallback HotelAPI")
-    hotel_api = HotelAPI()
+    logger.error("CRITICAL: Mock Hotels Database not available!")
+    raise ImportError("MockHotelsDatabase must be available")
 
 booking_service = BookingService()
 
 
-# ⭐ Rich Link Formatter - Generate Google Maps links
+# Rich Link Formatter - Generate Google Maps links
 def rich_link_formatter(
     location_name: str,
     location_type: str = "general",
@@ -134,7 +120,7 @@ def rich_link_formatter(
         >>> rich_link_formatter("Hyatt Regency", "hotel", "Riyadh", "Saudi Arabia")
         {
             "success": True,
-            "rich_link": "[🏨 View Hyatt Regency on Google Maps](https://...)",
+            "rich_link": "[View Hyatt Regency on Google Maps](https://...)",
             "maps_url": "https://www.google.com/maps/search/?api=1&query=...",
             "location_name": "Hyatt Regency",
             "type": "hotel"
@@ -154,23 +140,8 @@ def rich_link_formatter(
         encoded_query = search_query.replace(" ", "+").replace(",", "%2C")
         maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_query}"
         
-        # Choose appropriate emoji based on location type
-        emoji_map = {
-            "hotel": "🏨",
-            "airport": "✈️",
-            "restaurant": "🍽️",
-            "attraction": "🎯",
-            "museum": "🏛️",
-            "park": "🌳",
-            "shopping": "🛍️",
-            "cafe": "☕",
-            "landmark": "🗼",
-            "general": "📍"
-        }
-        emoji = emoji_map.get(location_type.lower(), "📍")
-        
         # Generate Markdown link
-        rich_link = f"[{emoji} View {location_name} on Google Maps]({maps_url})"
+        rich_link = f"[View {location_name} on Google Maps]({maps_url})"
         
         # For voice response (don't read the URL aloud)
         voice_response = f"I've added a map link for {location_name}. You can click on it to see the location."
@@ -188,7 +159,7 @@ def rich_link_formatter(
         return {
             "success": False,
             "error": str(e),
-            "rich_link": f"📍 {location_name}",
+            "rich_link": f"{location_name}",
             "voice_response": f"I found {location_name}, but couldn't generate a map link."
         }
 
@@ -204,242 +175,357 @@ def generate_structured_summary(transcript: List[Dict], booking_details: Optiona
     
     Uses actual conversation data to generate meaningful summaries.
     """
-    if not transcript or len(transcript) == 0:
-        logger.warning("⚠️ Empty transcript received, using booking details only")
-        # If no transcript but has booking details, create summary from booking
-        if booking_details:
-            return generate_summary_from_booking(booking_details)
-        return "No conversation data available. Please complete a call to generate a summary."
-    
-    import re
-    
-    # Extract customer name from conversation
-    customer_name = "Traveler"  # Default if not found
-    
-    # Only look at user messages for name extraction, not assistant messages
-    user_messages = [msg.get("message", "") or msg.get("text", "") for msg in transcript if msg.get("role") == "user"]
-    user_conversation = " ".join(user_messages)
-    
-    conversation_text = " ".join([msg.get("message", "") or msg.get("text", "") for msg in transcript if msg.get("role") != "system"])
-    
-    logger.info(f"📝 Processing transcript with {len(transcript)} messages")
-    logger.info(f"📝 Conversation preview: {conversation_text[:200]}...")
-    
-    # Try to extract name from USER messages only (common patterns)
-    name_patterns = [
-        r"(?:my name is|I'm|this is|call me)\s+(\w+)",
-        r"name\s+is\s+(\w+)",
-    ]
-    for pattern in name_patterns:
-        match = re.search(pattern, user_conversation, re.IGNORECASE)
-        if match:
-            potential_name = match.group(1).capitalize()
-            # Avoid common words and assistant name
-            if potential_name.lower() not in ['help', 'me', 'booking', 'flight', 'travel', 'alex', 'assistant', 'atar', 'attar']:
-                customer_name = potential_name
-                logger.info(f"👤 Detected customer name: {customer_name}")
-            break
-    
-    # Analyze conversation to extract travel intent
-    travel_keywords = {
-        'flight': ['flight', 'fly', 'airplane', 'airline'],
-        'destination': ['going to', 'travel to', 'visit', 'destination'],
-        'hotel': ['hotel', 'accommodation', 'stay', 'room'],
-        'dates': ['when', 'date', 'day', 'month', 'tomorrow', 'next week']
-    }
-    
-    intent = detect_travel_intent(conversation_text, travel_keywords)
-    
-    # Build main topic based on actual conversation and booking details
-    main_topic = ""
-    if booking_details:
-        # Only use this if we have confirmed booking details
-        from_loc = booking_details.get("departure_location", "")
-        to_loc = booking_details.get("destination", "")
-        trip_type = "round-trip" if booking_details.get("return_date") else "one-way"
+    try:
+        if not transcript or len(transcript) == 0:
+            logger.warning(" Empty transcript received, using booking details only")
+            # If no transcript but has booking details, create summary from booking
+            if booking_details:
+                return generate_summary_from_booking(booking_details)
+            return "No conversation data available. Please complete a call to generate a summary."
         
-        if from_loc and to_loc:
-            main_topic = f"{customer_name} contacted Attar Travel Agency and successfully booked a {trip_type} flight from {from_loc} to {to_loc}."
-        else:
-            main_topic = f"{customer_name} contacted Attar Travel Agency and completed a flight booking."
-    else:
-        # No booking made - this is an inquiry or initial contact
-        # Check for trip planning vs simple flight inquiry
+        import re
+        
+        # Extract customer name from conversation
+        customer_name = "Traveler"  # Default if not found
+        
+        # Only look at user messages for name extraction, not assistant messages
+        user_messages = [msg.get("message", "") or msg.get("text", "") for msg in transcript if msg.get("role") == "user"]
+        user_conversation = " ".join(user_messages)
+        
+        conversation_text = " ".join([msg.get("message", "") or msg.get("text", "") for msg in transcript if msg.get("role") != "system"])
+        
+        logger.info(f"Processing transcript with {len(transcript)} messages")
+        logger.info(f"Conversation preview: {conversation_text[:200]}...")
+        
+        # Try to extract name from USER messages only (common patterns)
+        name_patterns = [
+            r"(?:my name is|I'm|this is|call me)\s+(\w+)",
+            r"name\s+is\s+(\w+)",
+        ]
+        for pattern in name_patterns:
+            match = re.search(pattern, user_conversation, re.IGNORECASE)
+            if match:
+                potential_name = match.group(1).capitalize()
+                # Avoid common words and assistant name
+                if potential_name.lower() not in ['help', 'me', 'booking', 'flight', 'travel', 'alex', 'assistant', 'atar', 'attar']:
+                    customer_name = potential_name
+                    logger.info(f"Detected customer name: {customer_name}")
+                break
+        
+        # Analyze conversation to extract travel intent
+        travel_keywords = {
+            'flight': ['flight', 'fly', 'airplane', 'airline'],
+            'destination': ['going to', 'travel to', 'visit', 'destination'],
+            'hotel': ['hotel', 'accommodation', 'stay', 'room'],
+            'dates': ['when', 'date', 'day', 'month', 'tomorrow', 'next week']
+        }
+        
+        intent = detect_travel_intent(conversation_text, travel_keywords)
+        
+        # Extract key information from conversation for professional summary
+        # Only include what was actually discussed - no generic content
+        # IMPORTANT: Only extract from USER messages to avoid assistant's generic responses
+        summary_parts = []
+        
+        # Extract important details from USER messages only
         conv_lower = conversation_text.lower()
+        user_messages_text = " ".join(user_messages).lower()
         
-        if any(word in conv_lower for word in ['itinerary', 'trip plan', 'day plan', 'day trip', 'multi-day', 'tour package', 'visit', 'sightseeing']):
-            # Trip planning discussion
-            if any(word in conv_lower for word in ['saudi', 'riyadh', 'jeddah', 'mecca', 'medina']):
-                main_topic = f"{customer_name} contacted Attar Travel Agency to discuss multi-day trip planning and itinerary options for Saudi Arabia."
+        # Check if user actually asked for flights (not just assistant mentioned it)
+        user_asked_flights = any(word in user_messages_text for word in ['flight', 'fly', 'airplane', 'airline', 'book flight', 'search flight', 'find flight'])
+        
+        # Extract flight information ONLY if user asked for flights
+        if user_asked_flights:
+            # Try to extract origin and destination
+            origin_patterns = [
+                r'(?:from|leaving|departing)\s+([a-z\s]+?)(?:\s+to|\s+on|\s+for|$)',
+                r'flight\s+from\s+([a-z\s]+?)(?:\s+to|\s+on|$)',
+            ]
+            dest_patterns = [
+                r'(?:to|going to|traveling to|destination)\s+([a-z\s]+?)(?:\s+on|\s+for|\s+date|$)',
+                r'flight.*?to\s+([a-z\s]+?)(?:\s+on|\s+for|$)',
+            ]
+            
+            origin = None
+            destination = None
+            
+            for pattern in origin_patterns:
+                match = re.search(pattern, user_messages_text, re.IGNORECASE)
+                if match:
+                    origin = match.group(1).strip()
+                    # Clean up common words
+                    origin = re.sub(r'\b(from|leaving|departing)\b', '', origin, flags=re.IGNORECASE).strip()
+                    if origin and len(origin.split()) <= 3:
+                        break
+            
+            for pattern in dest_patterns:
+                match = re.search(pattern, user_messages_text, re.IGNORECASE)
+                if match:
+                    destination = match.group(1).strip()
+                    # Clean up common words
+                    destination = re.sub(r'\b(to|going|traveling|destination)\b', '', destination, flags=re.IGNORECASE).strip()
+                    if destination and len(destination.split()) <= 3:
+                        break
+            
+            # Extract date
+            date_patterns = [
+                r'(?:on|for|date)\s+([a-z]+\s+\d{1,2},?\s+\d{4})',
+                r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+                r'(november|december|january|february|march|april|may|june|july|august|september|october)\s+(\d{1,2})',
+            ]
+            travel_date = None
+            for pattern in date_patterns:
+                match = re.search(pattern, user_messages_text, re.IGNORECASE)
+                if match:
+                    travel_date = match.group(0).strip()
+                    break
+            
+            # Build flight discussion summary
+            if origin and destination:
+                flight_desc = f"Flight inquiry from {origin.title()} to {destination.title()}"
+                if travel_date:
+                    flight_desc += f" on {travel_date}"
+                summary_parts.append(flight_desc)
             else:
-                main_topic = f"{customer_name} contacted Attar Travel Agency to discuss trip planning and itinerary options."
-        elif 'flight' in intent:
-            main_topic = f"{customer_name} contacted Attar Travel Agency to inquire about flight bookings and travel options."
-        elif 'hotel' in intent:
-            main_topic = f"{customer_name} contacted Attar Travel Agency to discuss accommodation options."
-        elif len(conversation_text.split()) < 50:
-            # Very short conversation - likely just a greeting
-            main_topic = f"Initial contact established with Attar Travel Agency. {customer_name} was greeted and introduced to available travel services."
+                summary_parts.append("Flight booking inquiry")
+        
+        # Extract hotel information ONLY if user asked for hotels
+        user_asked_hotels = any(word in user_messages_text for word in ['hotel', 'accommodation', 'stay', 'room', 'book hotel', 'search hotel', 'find hotel'])
+        
+        if user_asked_hotels:
+            hotel_city = None
+            city_patterns = [
+                r'hotel\s+(?:in|at|for)\s+([a-z\s]+?)(?:\s+for|\s+on|$)',
+                r'(?:stay|accommodation)\s+(?:in|at)\s+([a-z\s]+?)(?:\s+for|$)',
+            ]
+            for pattern in city_patterns:
+                match = re.search(pattern, user_messages_text, re.IGNORECASE)
+                if match:
+                    hotel_city = match.group(1).strip()
+                    if hotel_city and len(hotel_city.split()) <= 2:
+                        break
+            
+            if hotel_city:
+                summary_parts.append(f"Hotel accommodation inquiry for {hotel_city.title()}")
+            else:
+                summary_parts.append("Hotel accommodation inquiry")
+        
+        # Don't add trip planning unless explicitly discussed in detail
+        # Only add if user specifically asked about itinerary/trip planning (not just mentioned)
+        
+        # Add booking details if booking was made
+        if booking_details:
+            from_loc = booking_details.get("departure_location", "")
+            to_loc = booking_details.get("destination", "")
+            trip_type = "round-trip" if booking_details.get("return_date") else "one-way"
+            departure_date = booking_details.get("departure_date", "")
+            airline = booking_details.get("airline", "")
+            flight_number = booking_details.get("flight_number", "")
+            booking_id = booking_details.get("booking_id", "")
+            
+            booking_info = []
+            if from_loc and to_loc:
+                booking_info.append(f"{trip_type.title()} flight from {from_loc} to {to_loc}")
+            if departure_date:
+                booking_info.append(f"departure date: {departure_date}")
+            if airline:
+                booking_info.append(f"airline: {airline}")
+            if flight_number:
+                booking_info.append(f"flight number: {flight_number}")
+            if booking_id:
+                booking_info.append(f"booking confirmation: {booking_id}")
+            
+            if booking_info:
+                summary_parts.append(f"Booking completed - {', '.join(booking_info)}")
+        
+        # Only create summary if we have actual content to summarize
+        # Don't add generic fallback messages
+        if not summary_parts:
+            # Only add minimal summary if conversation was very short
+            if len(conversation_text.split()) < 30:
+                discussion_summary = "Brief initial contact."
+            else:
+                # Try to extract at least flight or hotel info from USER messages
+                if user_asked_flights:
+                    discussion_summary = "Flight inquiry discussed."
+                elif user_asked_hotels:
+                    discussion_summary = "Hotel inquiry discussed."
+                else:
+                    discussion_summary = "Travel inquiry discussed."
         else:
-            main_topic = f"{customer_name} contacted Attar Travel Agency for travel assistance and information."
-    
-    # Extract key points from actual conversation
-    key_points = extract_key_points_from_conversation(transcript, booking_details)
-    
-    # Actions taken
-    actions_taken = generate_actions_taken(booking_details, customer_name)
-    
-    # Next steps
-    next_steps = f"{customer_name} will receive a detailed email shortly with payment instructions and all booking details. No further assistance was requested at this time."
-    
-    # Format the structured summary with proper spacing
-    structured_summary = f"""◆ Main Topic/Purpose of the call
-
-{main_topic}
-
-◆ Key Points Discussed
-
-{chr(10).join('• ' + point for point in key_points)}
-
-◆ Actions Taken
-
-{actions_taken}
-
-◆ Next Steps
-
-{next_steps}"""
-    
-    logger.info(f"✅ Generated structured summary for {customer_name}")
-    return structured_summary
+            # Create professional summary from actual content
+            discussion_summary = ". ".join(summary_parts) + "."
+        
+        logger.info(f"Generated professional summary: {discussion_summary}")
+        return discussion_summary
+    except Exception as e:
+        logger.error(f"Error generating structured summary: {e}", exc_info=True)
+        # Return fallback summary
+        if booking_details:
+            try:
+                return generate_summary_from_booking(booking_details)
+            except Exception as fallback_error:
+                logger.error(f"Error in fallback summary generation: {fallback_error}", exc_info=True)
+        return "Travel inquiry and assistance discussion."
 
 
 def detect_travel_intent(conversation: str, keywords: dict) -> list:
     """Detect travel intents from conversation"""
-    intents = []
-    conv_lower = conversation.lower()
-    for intent, words in keywords.items():
-        if any(word in conv_lower for word in words):
-            intents.append(intent)
-    return intents
+    try:
+        intents = []
+        if not conversation:
+            logger.warning(" Empty conversation string provided to detect_travel_intent")
+            return intents
+        
+        conv_lower = conversation.lower()
+        for intent, words in keywords.items():
+            if any(word in conv_lower for word in words):
+                intents.append(intent)
+        return intents
+    except Exception as e:
+        logger.error(f"Error detecting travel intent: {e}", exc_info=True)
+        return []
 
 
 def extract_key_points_from_conversation(transcript: List[Dict], booking_details: Optional[Dict] = None) -> list:
     """Extract key discussion points from the actual conversation"""
-    key_points = []
-    
-    if booking_details:
-        # Extract from booking details
-        if booking_details.get("departure_date"):
-            key_points.append(f"Selected departure date: {booking_details.get('departure_date')}")
+    try:
+        key_points = []
         
-        if booking_details.get("return_date"):
-            key_points.append(f"Selected return date: {booking_details.get('return_date')}")
+        if booking_details:
+            # Extract from booking details
+            if booking_details.get("departure_date"):
+                key_points.append(f"Selected departure date: {booking_details.get('departure_date')}")
             
-        service_class = booking_details.get("service_details", "Economy")
-        key_points.append(f"Selected {service_class} class")
-        
-        num_travelers = booking_details.get("num_travelers", 1)
-        if num_travelers > 1:
-            key_points.append(f"Booking for {num_travelers} passengers")
-        
-        key_points.append("Provided travel preferences and passenger details")
-        key_points.append("Confirmed flight details and pricing")
-    else:
-        # Extract from conversation messages - more accurate for inquiries
-        conversation_text = " ".join([
-            (msg.get("message", "") or msg.get("text", "")).lower() 
-            for msg in transcript
-        ])
-        
-        # Check what was actually discussed - PRIORITIZE trip planning over generic inquiries
-        
-        # Check for trip planning / itinerary discussions FIRST
-        if any(word in conversation_text for word in ['itinerary', 'trip plan', 'day plan', 'day trip', 'multi-day', 'tour package', 'visit', 'sightseeing']):
-            key_points.append("Discussed multi-day trip planning and itinerary options")
-            
-            # Check for specific destinations
-            if any(word in conversation_text for word in ['riyadh', 'jeddah', 'mecca', 'medina', 'dammam', 'edge of the world', 'diriyah', 'abha']):
-                key_points.append("Explored specific Saudi Arabia destinations and attractions")
-            
-            if any(word in conversation_text for word in ['activity', 'activities', 'things to do', 'what to see']):
-                key_points.append("Discussed activities and experiences during the trip")
+            if booking_details.get("return_date"):
+                key_points.append(f"Selected return date: {booking_details.get('return_date')}")
                 
-            if any(word in conversation_text for word in ['day', 'days', 'night', 'nights']):
-                key_points.append("Reviewed trip duration and daily schedule options")
+            service_class = booking_details.get("service_details", "Economy")
+            key_points.append(f"Selected {service_class} class")
+            
+            num_travelers = booking_details.get("num_travelers", 1)
+            if num_travelers > 1:
+                key_points.append(f"Booking for {num_travelers} passengers")
+            
+            key_points.append("Provided travel preferences and passenger details")
+            key_points.append("Confirmed flight details and pricing")
         else:
-            # Standard flight/travel inquiry
-            if any(word in conversation_text for word in ['flight', 'fly', 'airplane']):
-                key_points.append("Inquired about flight options and availability")
+            # Extract from conversation messages - more accurate for inquiries
+            conversation_text = " ".join([
+                (msg.get("message", "") or msg.get("text", "")).lower() 
+                for msg in transcript
+            ])
             
-            if any(word in conversation_text for word in ['destination', 'going to', 'travel to']):
-                key_points.append("Discussed potential travel destinations")
+            # Check what was actually discussed - PRIORITIZE trip planning over generic inquiries
+            
+            # Check for trip planning / itinerary discussions FIRST
+            if any(word in conversation_text for word in ['itinerary', 'trip plan', 'day plan', 'day trip', 'multi-day', 'tour package', 'visit', 'sightseeing']):
+                key_points.append("Discussed multi-day trip planning and itinerary options")
                 
-            if any(word in conversation_text for word in ['date', 'when', 'day', 'time']):
-                key_points.append("Asked about travel dates and timing")
-            
-            if any(word in conversation_text for word in ['price', 'cost', 'fare', 'budget']):
-                key_points.append("Inquired about pricing and costs")
+                # Check for specific destinations
+                if any(word in conversation_text for word in ['riyadh', 'jeddah', 'mecca', 'medina', 'dammam', 'edge of the world', 'diriyah', 'abha']):
+                    key_points.append("Explored specific Saudi Arabia destinations and attractions")
                 
-            if any(word in conversation_text for word in ['economy', 'business', 'first class']):
-                key_points.append("Discussed cabin class options")
+                if any(word in conversation_text for word in ['activity', 'activities', 'things to do', 'what to see']):
+                    key_points.append("Discussed activities and experiences during the trip")
+                    
+                if any(word in conversation_text for word in ['day', 'days', 'night', 'nights']):
+                    key_points.append("Reviewed trip duration and daily schedule options")
+            else:
+                # Standard flight/travel inquiry
+                if any(word in conversation_text for word in ['flight', 'fly', 'airplane']):
+                    key_points.append("Inquired about flight options and availability")
+                
+                if any(word in conversation_text for word in ['destination', 'going to', 'travel to']):
+                    key_points.append("Discussed potential travel destinations")
+                    
+                if any(word in conversation_text for word in ['date', 'when', 'day', 'time']):
+                    key_points.append("Asked about travel dates and timing")
+                
+                if any(word in conversation_text for word in ['price', 'cost', 'fare', 'budget']):
+                    key_points.append("Inquired about pricing and costs")
+                
+                if any(word in conversation_text for word in ['economy', 'business', 'first class']):
+                    key_points.append("Discussed cabin class options")
+                
+                if any(word in conversation_text for word in ['hotel', 'accommodation', 'stay']):
+                    key_points.append("Asked about accommodation options")
             
-            if any(word in conversation_text for word in ['hotel', 'accommodation', 'stay']):
-                key_points.append("Asked about accommodation options")
+            # If very short conversation (greeting only), be explicit about it
+            if len(key_points) == 0 or len(conversation_text.split()) < 50:
+                key_points = [
+                    "Initial greeting and introduction to services",
+                    "Established contact with travel assistant",
+                    "Expressed interest in travel planning"
+                ]
         
-        # If very short conversation (greeting only), be explicit about it
-        if len(key_points) == 0 or len(conversation_text.split()) < 50:
-            key_points = [
-                "Initial greeting and introduction to services",
-                "Established contact with travel assistant",
-                "Expressed interest in travel planning"
-            ]
-    
-    return key_points[:5]  # Limit to 5 key points
+        return key_points[:5]  # Limit to 5 key points
+    except Exception as e:
+        logger.error(f"Error extracting key points from conversation: {e}", exc_info=True)
+        return ["Travel inquiry and assistance discussion"]
 
 
 def generate_actions_taken(booking_details: Optional[Dict], customer_name: str) -> str:
     """Generate the actions taken section"""
-    if booking_details:
-        from_loc = booking_details.get("departure_location", "departure city")
-        to_loc = booking_details.get("destination", "destination")
-        service_class = booking_details.get("service_details", "Economy")
-        booking_id = booking_details.get("booking_id", "BK_" + datetime.now().strftime("%Y%m%d%H%M%S"))
-        passengers = booking_details.get("num_travelers", 1)
-        
-        action = f"A reservation was successfully made for {customer_name}'s flight from {from_loc} to {to_loc} in {service_class} Class"
-        if passengers > 1:
-            action += f" for {passengers} passengers"
-        action += f". The confirmation number #{booking_id} was provided."
-        return action
-    else:
-        return "The conversation was an initial inquiry. Travel information and assistance were provided. No booking was completed during this call."
+    try:
+        if booking_details:
+            from_loc = booking_details.get("departure_location", "departure city")
+            to_loc = booking_details.get("destination", "destination")
+            service_class = booking_details.get("service_details", "Economy")
+            booking_id = booking_details.get("booking_id", "BK_" + datetime.now().strftime("%Y%m%d%H%M%S"))
+            passengers = booking_details.get("num_travelers", 1)
+            
+            action = f"A reservation was successfully made for {customer_name}'s flight from {from_loc} to {to_loc} in {service_class} Class"
+            if passengers > 1:
+                action += f" for {passengers} passengers"
+            action += f". The confirmation number #{booking_id} was provided."
+            return action
+        else:
+            return "The conversation was an initial inquiry. Travel information and assistance were provided. No booking was completed during this call."
+    except Exception as e:
+        logger.error(f"Error generating actions taken: {e}", exc_info=True)
+        return "Travel information and assistance were provided during the conversation."
 
 
 def generate_summary_from_booking(booking_details: Dict) -> str:
     """Generate summary when only booking details are available (no transcript)"""
-    from_loc = booking_details.get("departure_location", "")
-    to_loc = booking_details.get("destination", "")
-    trip_type = "round-trip" if booking_details.get("return_date") else "one-way"
-    
-    summary = f"""◆ Main Topic/Purpose of the call
-
-A {trip_type} flight booking from {from_loc} to {to_loc}.
-
-◆ Key Points Discussed
-
-• Selected departure date: {booking_details.get('departure_date', 'TBD')}
-• Selected {booking_details.get('service_details', 'Economy')} class
-• Confirmed flight details and pricing
-
-◆ Actions Taken
-
-A flight reservation was successfully created with confirmation number #{booking_details.get('booking_id', 'PENDING')}.
-
-◆ Next Steps
-
-Detailed booking confirmation and payment instructions will be sent via email shortly."""
-    
-    return summary
+    try:
+        if not booking_details:
+            logger.warning(" Empty booking_details provided to generate_summary_from_booking")
+            return "Flight booking discussion."
+        
+        from_loc = booking_details.get("departure_location", "")
+        to_loc = booking_details.get("destination", "")
+        trip_type = "round-trip" if booking_details.get("return_date") else "one-way"
+        departure_date = booking_details.get("departure_date", "")
+        airline = booking_details.get("airline", "")
+        flight_number = booking_details.get("flight_number", "")
+        booking_id = booking_details.get("booking_id", "")
+        
+        summary_parts = []
+        if from_loc and to_loc:
+            summary_parts.append(f"Flight inquiry from {from_loc} to {to_loc}")
+        if departure_date:
+            summary_parts.append(f"departure date: {departure_date}")
+        
+        # Add booking details
+        booking_info = []
+        if airline:
+            booking_info.append(f"airline: {airline}")
+        if flight_number:
+            booking_info.append(f"flight number: {flight_number}")
+        if booking_id:
+            booking_info.append(f"booking confirmation: {booking_id}")
+        
+        if booking_info:
+            summary_parts.append(f"Booking completed - {', '.join(booking_info)}")
+        
+        summary = ". ".join(summary_parts) + "." if summary_parts else "Flight booking discussion."
+        
+        return summary
+    except Exception as e:
+        logger.error(f"Error generating summary from booking: {e}", exc_info=True)
+        return "Flight booking discussion."
 
 
 # Helper function to extract booking details from conversation
@@ -448,173 +534,178 @@ def extract_booking_from_transcript(transcript: List[Dict], summary: str) -> Opt
     Extract booking details from the conversation transcript and summary.
     Looks for flight booking information in the assistant's messages.
     """
-    if not transcript:
-        return None
-    
-    import re
-    from datetime import datetime
-    
-    booking_info = {
-        "airline": None,
-        "flight_number": None,
-        "departure_location": None,
-        "destination": None,
-        "departure_time": None,
-        "arrival_time": None,
-        "departure_date": None,
-        "return_date": None,
-        "duration": None,
-        "price": None,
-        "currency": "₹",
-        "num_travelers": 1,
-        "service_details": "Economy",
-        "booking_id": None
-    }
-    
-    # Combine all messages into searchable text
-    conversation_text = " ".join([
-        msg.get("message", "") for msg in transcript 
-        if msg.get("role", "").lower() in ["user", "assistant"]
-    ])
-    
-    # Also get user messages separately for more targeted extraction
-    user_messages = " ".join([
-        msg.get("message", "") for msg in transcript 
-        if msg.get("role", "").lower() == "user"
-    ])
-    
-    # Extract airline name
-    airlines_pattern = r"(Air India|IndiGo|SpiceJet|Vistara|Emirates|Qatar Airways|Turkish Airlines|Saudi Airlines|Saudia|Flynas|Etihad|Lufthansa)"
-    airline_match = re.search(airlines_pattern, conversation_text, re.IGNORECASE)
-    if airline_match:
-        booking_info["airline"] = airline_match.group(1)
-    
-    # Extract flight number (e.g., "AI 101", "SG 234")
-    flight_num_pattern = r"\b([A-Z]{2}[\s-]?\d{2,4})\b"
-    flight_match = re.search(flight_num_pattern, conversation_text)
-    if flight_match:
-        booking_info["flight_number"] = flight_match.group(1)
-    
-    # Extract locations (from/to)
-    # Look for patterns like "from Mumbai to Dubai", "Mumbai to Dubai", "Bangalore to Jeddah", "BLR to JED"
-    # Try multiple patterns with increasing flexibility
-    location_patterns = [
-        r"(?:from|leaving|departing from|traveling from|flying from)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})\s+(?:to|towards|destination|going to)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})",
-        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})\s+to\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})",
-        r"(?:origin|from|departure)[\s:]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})[,\s]+(?:destination|to|arrival)[\s:]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})",
-        r"(?:flight|travel|go|trip)\s+from\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})\s+(?:to|→)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})",
-    ]
-    
-    # Try to extract from conversation text first
-    for pattern in location_patterns:
-        location_match = re.search(pattern, conversation_text, re.IGNORECASE)
-        if location_match:
-            booking_info["departure_location"] = location_match.group(1).strip()
-            booking_info["destination"] = location_match.group(2).strip()
-            break
-    
-    # If not found, try user messages specifically
-    if not booking_info["departure_location"] or not booking_info["destination"]:
+    try:
+        if not transcript:
+            logger.warning(" Empty transcript provided to extract_booking_from_transcript")
+            return None
+        
+        import re
+        from datetime import datetime
+        
+        booking_info = {
+            "airline": None,
+            "flight_number": None,
+            "departure_location": None,
+            "destination": None,
+            "departure_time": None,
+            "arrival_time": None,
+            "departure_date": None,
+            "return_date": None,
+            "duration": None,
+            "price": None,
+            "currency": "₹",
+            "num_travelers": 1,
+            "service_details": "Economy",
+            "booking_id": None
+        }
+        
+        # Combine all messages into searchable text
+        conversation_text = " ".join([
+            msg.get("message", "") for msg in transcript 
+            if msg.get("role", "").lower() in ["user", "assistant"]
+        ])
+        
+        # Also get user messages separately for more targeted extraction
+        user_messages = " ".join([
+            msg.get("message", "") for msg in transcript 
+            if msg.get("role", "").lower() == "user"
+        ])
+        
+        # Extract airline name
+        airlines_pattern = r"(Air India|IndiGo|SpiceJet|Vistara|Emirates|Qatar Airways|Turkish Airlines|Saudi Airlines|Saudia|Flynas|Etihad|Lufthansa)"
+        airline_match = re.search(airlines_pattern, conversation_text, re.IGNORECASE)
+        if airline_match:
+            booking_info["airline"] = airline_match.group(1)
+        
+        # Extract flight number (e.g., "AI 101", "SG 234")
+        flight_num_pattern = r"\b([A-Z]{2}[\s-]?\d{2,4})\b"
+        flight_match = re.search(flight_num_pattern, conversation_text)
+        if flight_match:
+            booking_info["flight_number"] = flight_match.group(1)
+        
+        # Extract locations (from/to)
+        # Look for patterns like "from Mumbai to Dubai", "Mumbai to Dubai", "Bangalore to Jeddah", "BLR to JED"
+        # Try multiple patterns with increasing flexibility
+        location_patterns = [
+            r"(?:from|leaving|departing from|traveling from|flying from)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})\s+(?:to|towards|destination|going to)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})",
+            r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})\s+to\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})",
+            r"(?:origin|from|departure)[\s:]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})[,\s]+(?:destination|to|arrival)[\s:]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})",
+            r"(?:flight|travel|go|trip)\s+from\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})\s+(?:to|→)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|[A-Z]{3})",
+        ]
+        
+        # Try to extract from conversation text first
         for pattern in location_patterns:
-            location_match = re.search(pattern, user_messages, re.IGNORECASE)
+            location_match = re.search(pattern, conversation_text, re.IGNORECASE)
             if location_match:
                 booking_info["departure_location"] = location_match.group(1).strip()
                 booking_info["destination"] = location_match.group(2).strip()
                 break
-    
-    # Extract dates - handle multiple formats
-    # Patterns: "March 15", "15th March", "2025-03-15", "December fifteenth 2025", "15/03/2025"
-    date_patterns = [
-        r"\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+\d{4})?)\b",
-        r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:\s+\d{4})?)\b",
-        r"\b(\d{2}/\d{2}/\d{4})\b",
-        r"\b(\d{4}-\d{2}-\d{2})\b",
-        r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty-first|twenty-second|twenty-third|twenty-fourth|twenty-fifth|twenty-sixth|twenty-seventh|twenty-eighth|twenty-ninth|thirtieth|thirty-first)(?:\s+\d{4})?)\b"
-    ]
-    
-    all_dates = []
-    for pattern in date_patterns:
-        found_dates = re.findall(pattern, conversation_text, re.IGNORECASE)
-        all_dates.extend(found_dates)
-    
-    if len(all_dates) >= 1:
-        booking_info["departure_date"] = all_dates[0]
-    if len(all_dates) >= 2:
-        booking_info["return_date"] = all_dates[1]
-    
-    # Extract times (e.g., "8:30 AM", "20:30", "6:55a")
-    time_pattern = r"\b(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm|a|p)?)\b"
-    times = re.findall(time_pattern, conversation_text)
-    if len(times) >= 1:
-        booking_info["departure_time"] = times[0]
-    if len(times) >= 2:
-        booking_info["arrival_time"] = times[1]
-    
-    # Extract price (e.g., "₹5000", "$500", "5000 rupees")
-    price_pattern = r"(?:₹|Rs\.?|INR|rupees?)\s*(\d+(?:,\d+)?)|(\d+(?:,\d+)?)\s*(?:₹|Rs\.?|INR|rupees?)"
-    price_match = re.search(price_pattern, conversation_text, re.IGNORECASE)
-    if price_match:
-        price_str = price_match.group(1) or price_match.group(2)
-        booking_info["price"] = int(price_str.replace(",", ""))
-    
-    # Extract number of passengers
-    passenger_pattern = r"(\d+)\s+(?:passenger|traveler|person|people)"
-    passenger_match = re.search(passenger_pattern, conversation_text, re.IGNORECASE)
-    if passenger_match:
-        booking_info["num_travelers"] = int(passenger_match.group(1))
-    
-    # Extract class (Economy, Business, First)
-    class_pattern = r"\b(Economy|Business|First)\s+(?:Class|class)?"
-    class_match = re.search(class_pattern, conversation_text, re.IGNORECASE)
-    if class_match:
-        booking_info["service_details"] = class_match.group(1).capitalize()
-    
-    # Extract booking reference from transcript
-    booking_ref_pattern = r"\b([A-Z]{2,3}[-_]?\d{6,10})\b"
-    booking_ref_match = re.search(booking_ref_pattern, conversation_text)
-    if booking_ref_match:
-        booking_info["booking_id"] = booking_ref_match.group(1)
-    else:
-        # Generate a booking ID if none found
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        booking_info["booking_id"] = f"BK_{timestamp}"
-    
-    # STRICT CHECK: Only return booking details if there's clear evidence of an actual booking
-    # Look for booking confirmation keywords
-    booking_keywords = [
-        'booked', 'reserved', 'confirmed', 'confirmation', 'booking', 
-        'reservation made', 'successfully made', 'your booking',
-        'booking number', 'confirmation number', 'booking reference',
-        'booking id', 'pnr', 'ticket'
-    ]
-    
-    has_booking_confirmation = any(keyword in conversation_text.lower() for keyword in booking_keywords)
-    
-    # Only proceed if we have clear booking confirmation AND valid route
-    if not has_booking_confirmation:
-        logger.info("⚠️ No booking confirmation found in conversation - no booking details extracted")
+        
+        # If not found, try user messages specifically
+        if not booking_info["departure_location"] or not booking_info["destination"]:
+            for pattern in location_patterns:
+                location_match = re.search(pattern, user_messages, re.IGNORECASE)
+                if location_match:
+                    booking_info["departure_location"] = location_match.group(1).strip()
+                    booking_info["destination"] = location_match.group(2).strip()
+                    break
+        
+        # Extract dates - handle multiple formats
+        # Patterns: "March 15", "15th March", "2025-03-15", "December fifteenth 2025", "15/03/2025"
+        date_patterns = [
+            r"\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+\d{4})?)\b",
+            r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:\s+\d{4})?)\b",
+            r"\b(\d{2}/\d{2}/\d{4})\b",
+            r"\b(\d{4}-\d{2}-\d{2})\b",
+            r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty-first|twenty-second|twenty-third|twenty-fourth|twenty-fifth|twenty-sixth|twenty-seventh|twenty-eighth|twenty-ninth|thirtieth|thirty-first)(?:\s+\d{4})?)\b"
+        ]
+        
+        all_dates = []
+        for pattern in date_patterns:
+            found_dates = re.findall(pattern, conversation_text, re.IGNORECASE)
+            all_dates.extend(found_dates)
+        
+        if len(all_dates) >= 1:
+            booking_info["departure_date"] = all_dates[0]
+        if len(all_dates) >= 2:
+            booking_info["return_date"] = all_dates[1]
+        
+        # Extract times (e.g., "8:30 AM", "20:30", "6:55a")
+        time_pattern = r"\b(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm|a|p)?)\b"
+        times = re.findall(time_pattern, conversation_text)
+        if len(times) >= 1:
+            booking_info["departure_time"] = times[0]
+        if len(times) >= 2:
+            booking_info["arrival_time"] = times[1]
+        
+        # Extract price (e.g., "₹5000", "$500", "5000 rupees")
+        price_pattern = r"(?:₹|Rs\.?|INR|rupees?)\s*(\d+(?:,\d+)?)|(\d+(?:,\d+)?)\s*(?:₹|Rs\.?|INR|rupees?)"
+        price_match = re.search(price_pattern, conversation_text, re.IGNORECASE)
+        if price_match:
+            price_str = price_match.group(1) or price_match.group(2)
+            booking_info["price"] = int(price_str.replace(",", ""))
+        
+        # Extract number of passengers
+        passenger_pattern = r"(\d+)\s+(?:passenger|traveler|person|people)"
+        passenger_match = re.search(passenger_pattern, conversation_text, re.IGNORECASE)
+        if passenger_match:
+            booking_info["num_travelers"] = int(passenger_match.group(1))
+        
+        # Extract class (Economy, Business, First)
+        class_pattern = r"\b(Economy|Business|First)\s+(?:Class|class)?"
+        class_match = re.search(class_pattern, conversation_text, re.IGNORECASE)
+        if class_match:
+            booking_info["service_details"] = class_match.group(1).capitalize()
+        
+        # Extract booking reference from transcript
+        booking_ref_pattern = r"\b([A-Z]{2,3}[-_]?\d{6,10})\b"
+        booking_ref_match = re.search(booking_ref_pattern, conversation_text)
+        if booking_ref_match:
+            booking_info["booking_id"] = booking_ref_match.group(1)
+        else:
+            # Generate a booking ID if none found
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            booking_info["booking_id"] = f"BK_{timestamp}"
+        
+        # STRICT CHECK: Only return booking details if there's clear evidence of an actual booking
+        # Look for booking confirmation keywords
+        booking_keywords = [
+            'booked', 'reserved', 'confirmed', 'confirmation', 'booking', 
+            'reservation made', 'successfully made', 'your booking',
+            'booking number', 'confirmation number', 'booking reference',
+            'booking id', 'pnr', 'ticket'
+        ]
+        
+        has_booking_confirmation = any(keyword in conversation_text.lower() for keyword in booking_keywords)
+        
+        # Only proceed if we have clear booking confirmation AND valid route
+        if not has_booking_confirmation:
+            logger.info(" No booking confirmation found in conversation - no booking details extracted")
+            return None
+        
+        # Must have both locations to be a valid booking
+        if not (booking_info["departure_location"] and booking_info["destination"]):
+            logger.info(" Missing departure or destination - no booking details extracted")
+            return None
+        
+        # Additional check: make sure it's not just a greeting or inquiry
+        # Greetings often contain phrases like "planning to travel", "would you like to", "can I help"
+        inquiry_phrases = [
+            'planning to travel', 'would you like', 'can i help', 
+            'may i help', 'how can i help', 'welcome to', 'are you planning'
+        ]
+        
+        # If the ONLY mention of locations is in an inquiry phrase, don't extract
+        is_just_inquiry = any(phrase in conversation_text.lower() for phrase in inquiry_phrases)
+        if is_just_inquiry and len(conversation_text.split()) < 100:  # Short conversation = likely just greeting
+            logger.info(" Detected inquiry/greeting only - no actual booking made")
+            return None
+        
+        logger.info(f"Extracted booking: {booking_info['airline']} {booking_info['departure_location']} -> {booking_info['destination']}")
+        return booking_info
+    except Exception as e:
+        logger.error(f"Error extracting booking from transcript: {e}", exc_info=True)
         return None
-    
-    # Must have both locations to be a valid booking
-    if not (booking_info["departure_location"] and booking_info["destination"]):
-        logger.info("⚠️ Missing departure or destination - no booking details extracted")
-        return None
-    
-    # Additional check: make sure it's not just a greeting or inquiry
-    # Greetings often contain phrases like "planning to travel", "would you like to", "can I help"
-    inquiry_phrases = [
-        'planning to travel', 'would you like', 'can i help', 
-        'may i help', 'how can i help', 'welcome to', 'are you planning'
-    ]
-    
-    # If the ONLY mention of locations is in an inquiry phrase, don't extract
-    is_just_inquiry = any(phrase in conversation_text.lower() for phrase in inquiry_phrases)
-    if is_just_inquiry and len(conversation_text.split()) < 100:  # Short conversation = likely just greeting
-        logger.info("⚠️ Detected inquiry/greeting only - no actual booking made")
-        return None
-    
-    logger.info(f"✈️ Extracted booking: {booking_info['airline']} {booking_info['departure_location']} → {booking_info['destination']}")
-    return booking_info
 
 
 # Request/Response Models
@@ -668,17 +759,59 @@ class CallSummaryEmailRequest(BaseModel):
 call_summaries = {}
 latest_call_summary = None  # Store the most recent call summary as fallback
 
+# Helper function for email sending with error handling
+def _send_email_with_error_handling(
+    user_email: str,
+    user_name: str,
+    summary: str,
+    transcript: List[Dict],
+    call_duration: Optional[int],
+    call_id: Optional[str],
+    timestamp: Optional[str],
+    booking_details: Optional[Dict],
+    booking_confirmed: bool
+):
+    """Helper function to send email with proper error logging"""
+    try:
+        logger.info(f"Attempting to send email to {user_email}")
+        success = smtp_email_service.send_transcript_with_summary(
+            to_email=user_email,
+            user_name=user_name,
+            summary=summary,
+            transcript=transcript,
+            call_duration=call_duration,
+            session_id=call_id,
+            timestamp=timestamp,
+            booking_details=booking_details,
+            is_booking_confirmation=booking_confirmed
+        )
+        if success:
+            logger.info(f"Email sent successfully to {user_email}")
+        else:
+            logger.error(f"Failed to send email to {user_email} - check SMTP configuration")
+    except Exception as e:
+        logger.error(f"Exception in email sending task: {e}", exc_info=True)
+        logger.error(f"Email: {user_email}, Name: {user_name}")
+
 # API Endpoints
 
 @app.get("/")
 async def root():
     """Health check endpoint"""
-    return {
-        "status": "running",
-        "service": "Travel.ai Voice Bot API",
-        "version": "1.0.0",
-        "integration": "Vapi-only"
-    }
+    try:
+        return {
+            "status": "running",
+            "service": "Travel.ai Voice Bot API",
+            "version": "1.0.0",
+            "integration": "Vapi-only"
+        }
+    except Exception as e:
+        logger.error(f"Error in root endpoint: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "service": "Travel.ai Voice Bot API",
+            "error": str(e)
+        }
 
 
 @app.get("/api/call-summary/{call_id}")
@@ -689,8 +822,10 @@ async def get_call_summary(call_id: str):
             return call_summaries[call_id]
         else:
             raise HTTPException(status_code=404, detail="Call summary not found")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error fetching call summary: {e}")
+        logger.error(f"Error fetching call summary: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -706,22 +841,29 @@ async def get_latest_call_summary():
         # Let HTTPException pass through (404 is expected)
         raise
     except Exception as e:
-        logger.error(f"Error fetching latest call summary: {e}")
+        logger.error(f"Error fetching latest call summary: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/health")
 async def health_check():
     """Detailed health check"""
-    return {
-        "status": "healthy",
-        "services": {
-            "vapi": "connected",
-            "flight_api": "ready",
-            "hotel_api": "ready",
-            "booking_service": "ready"
+    try:
+        return {
+            "status": "healthy",
+            "services": {
+                "vapi": "connected",
+                "flight_api": "ready",
+                "hotel_api": "ready",
+                "booking_service": "ready"
+            }
         }
-    }
+    except Exception as e:
+        logger.error(f"Error in health check: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 
 @app.post("/test-booking-email")
@@ -780,7 +922,7 @@ async def test_booking_email():
             raise HTTPException(status_code=500, detail="Failed to send email")
             
     except Exception as e:
-        logger.error(f"Error sending test booking email: {e}")
+        logger.error(f"Error sending test booking email: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -816,14 +958,15 @@ async def vapi_function_webhook(request: Request):
             destination = args.get('destination', '').strip()
             departure_date = args.get('departure_date', '2025-12-20').strip()
         
-        logger.info(f"✈️ Function call - Origin: {origin}, Destination: {destination}, Date: {departure_date}")
-        logger.info(f"📦 Payload keys: {list(payload.keys())}")
+        logger.info(f"Function call - Origin: {origin}, Destination: {destination}, Date: {departure_date}")
+        logger.info(f"Payload keys: {list(payload.keys())}")
         
         if not origin or not destination:
-            logger.warning("⚠️ Missing origin or destination")
-            logger.warning(f"📦 Full payload for debugging: {json.dumps(payload, indent=2)}")
+            logger.warning("Missing origin or destination")
+            logger.warning(f"Full payload for debugging: {json.dumps(payload, indent=2)}")
             return JSONResponse(content={
-                "text": "I need both an origin and destination to search for flights."
+                "error": "missing_parameters",
+                "required": ["origin", "destination"]
             })
         
         # Search flights using flight API
@@ -838,7 +981,7 @@ async def vapi_function_webhook(request: Request):
         
         if flight_results.get("success") and flight_results.get("outbound_flights"):
             flights = flight_results.get("outbound_flights", [])
-            logger.info(f"✅ Found {len(flights)} flights")
+            logger.info(f"Found {len(flights)} flights")
             
             # Format flights as Vapi cards
             cards = []
@@ -846,7 +989,7 @@ async def vapi_function_webhook(request: Request):
                 card = {
                     "title": f"{flight.get('origin')} → {flight.get('destination')}",
                     "subtitle": f"{flight.get('airline')} | {flight.get('flight_number')}",
-                    "body": f"🕐 {flight.get('departure_time')} - {flight.get('arrival_time')} | ⏱️ {flight.get('duration')}",
+                    "body": f"{flight.get('departure_time')} - {flight.get('arrival_time')} | {flight.get('duration')}",
                     "footer": f"₹{flight.get('price'):,} | Economy",
                     "buttons": [
                         {
@@ -860,32 +1003,36 @@ async def vapi_function_webhook(request: Request):
             # Vapi expects this format: { "cards": [...], "text": "..." }
             vapi_response = {
                 "cards": cards,
-                "text": f"I found {len(cards)} flights from {origin} to {destination}. Here are your options:"
+                "text": ""  # Empty - AI will generate response from system prompt
             }
             
-            # ⭐ Store cards in cache for frontend polling
+            #  Store cards in cache for frontend polling
             call_id = payload.get("call", {}).get("id") or payload.get("callId") or "latest"
             flight_cards_cache[call_id] = {
                 "cards": cards,
-                "text": vapi_response["text"],
+                "text": "",  # Empty - AI handles responses
                 "timestamp": time.time(),
                 "origin": origin,
                 "destination": destination
             }
-            logger.info(f"💾 Cached {len(cards)} cards for call_id: {call_id}")
+            logger.info(f"Cached {len(cards)} cards for call_id: {call_id}")
             
-            logger.info(f"📤 Returning {len(cards)} flight cards to Vapi")
+            logger.info(f"Returning {len(cards)} flight cards to Vapi")
             return JSONResponse(content=vapi_response)
         else:
-            logger.warning("⚠️ No flights found")
+            logger.warning(" No flights found")
             return JSONResponse(content={
-                "text": f"I couldn't find any flights from {origin} to {destination} on {departure_date}. Please try different dates or cities."
+                "error": "no_flights_found",
+                "origin": origin,
+                "destination": destination,
+                "date": departure_date
             })
             
     except Exception as e:
-        logger.error(f"❌ Error in Vapi function webhook: {e}", exc_info=True)
+        logger.error(f"Error in Vapi function webhook: {e}", exc_info=True)
         return JSONResponse(content={
-            "text": f"I encountered an error while searching for flights: {str(e)}. Please try again."
+            "error": "search_failed",
+            "message": str(e)
         }, status_code=500)
 
 
@@ -896,7 +1043,7 @@ async def get_flight_cards(call_id: str):
     Frontend polls this endpoint to retrieve cards
     """
     try:
-        logger.info(f"🔍 Frontend polling for cards with call_id: {call_id}")
+        logger.info(f"Frontend polling for cards with call_id: {call_id}")
         
         # If 'latest' is requested, return the most recent cache entry
         if call_id == 'latest' and flight_cards_cache:
@@ -904,7 +1051,7 @@ async def get_flight_cards(call_id: str):
             latest_entry = max(flight_cards_cache.items(), key=lambda x: x[1]["timestamp"])
             latest_call_id, cache_data = latest_entry
             age = time.time() - cache_data["timestamp"]
-            logger.info(f"✅ Returning latest cached cards (call_id: {latest_call_id}, age: {age:.1f}s): {len(cache_data['cards'])} cards")
+            logger.info(f"Returning latest cached cards (call_id: {latest_call_id}, age: {age:.1f}s): {len(cache_data['cards'])} cards")
             
             return JSONResponse(content={
                 "success": True,
@@ -917,7 +1064,7 @@ async def get_flight_cards(call_id: str):
         elif call_id in flight_cards_cache:
             cache_data = flight_cards_cache[call_id]
             age = time.time() - cache_data["timestamp"]
-            logger.info(f"✅ Found cached cards (age: {age:.1f}s): {len(cache_data['cards'])} cards")
+            logger.info(f"Found cached cards (age: {age:.1f}s): {len(cache_data['cards'])} cards")
             
             return JSONResponse(content={
                 "success": True,
@@ -927,8 +1074,8 @@ async def get_flight_cards(call_id: str):
                 "age_seconds": age
             })
         else:
-            logger.info(f"⚠️ No cached cards found for call_id: {call_id}")
-            logger.info(f"📋 Available call_ids in cache: {list(flight_cards_cache.keys())}")
+            logger.info(f"No cached cards found for call_id: {call_id}")
+            logger.info(f"Available call_ids in cache: {list(flight_cards_cache.keys())}")
             
             return JSONResponse(content={
                 "success": False,
@@ -937,7 +1084,7 @@ async def get_flight_cards(call_id: str):
             })
             
     except Exception as e:
-        logger.error(f"❌ Error fetching flight cards: {e}")
+        logger.error(f"Error fetching flight cards: {e}", exc_info=True)
         return JSONResponse(content={
             "success": False,
             "cards": [],
@@ -953,9 +1100,9 @@ async def clear_cache():
     """
     try:
         logger.info("")
-        logger.info("🧹" * 30)
-        logger.info("🧹  FRONTEND REQUESTED CACHE CLEAR")
-        logger.info("🧹" * 30)
+        logger.info("" * 30)
+        logger.info("FRONTEND REQUESTED CACHE CLEAR")
+        logger.info("" * 30)
         
         flight_count = len(flight_cards_cache)
         hotel_count = len(hotel_cards_cache)
@@ -963,9 +1110,9 @@ async def clear_cache():
         flight_cards_cache.clear()
         hotel_cards_cache.clear()
         
-        logger.info(f"✅ Cleared {flight_count} flight cache entries")
-        logger.info(f"✅ Cleared {hotel_count} hotel cache entries")
-        logger.info("✅ All caches cleared - ready for fresh search")
+        logger.info(f"Cleared {flight_count} flight cache entries")
+        logger.info(f"Cleared {hotel_count} hotel cache entries")
+        logger.info("All caches cleared - ready for fresh search")
         logger.info("")
         
         return JSONResponse(content={
@@ -977,7 +1124,7 @@ async def clear_cache():
             }
         })
     except Exception as e:
-        logger.error(f"❌ Error clearing cache: {e}")
+        logger.error(f"Error clearing cache: {e}", exc_info=True)
         return JSONResponse(content={
             "success": False,
             "error": str(e)
@@ -990,7 +1137,7 @@ async def get_hotel_cards(call_id: str):
     Frontend polls this endpoint to retrieve hotel cards
     """
     try:
-        logger.info(f"🏨 Frontend polling for hotel cards with call_id: {call_id}")
+        logger.info(f"Frontend polling for hotel cards with call_id: {call_id}")
         
         # If 'latest' is requested, return the most recent cache entry
         if call_id == 'latest' and hotel_cards_cache:
@@ -998,7 +1145,7 @@ async def get_hotel_cards(call_id: str):
             latest_entry = max(hotel_cards_cache.items(), key=lambda x: x[1]["timestamp"])
             latest_call_id, cache_data = latest_entry
             age = time.time() - cache_data["timestamp"]
-            logger.info(f"✅ Returning latest cached hotel cards (call_id: {latest_call_id}, age: {age:.1f}s): {len(cache_data['cards'])} cards")
+            logger.info(f"Returning latest cached hotel cards (call_id: {latest_call_id}, age: {age:.1f}s): {len(cache_data['cards'])} cards")
             
             return JSONResponse(content={
                 "success": True,
@@ -1011,7 +1158,7 @@ async def get_hotel_cards(call_id: str):
         elif call_id in hotel_cards_cache:
             cache_data = hotel_cards_cache[call_id]
             age = time.time() - cache_data["timestamp"]
-            logger.info(f"✅ Found cached hotel cards (age: {age:.1f}s): {len(cache_data['cards'])} cards")
+            logger.info(f"Found cached hotel cards (age: {age:.1f}s): {len(cache_data['cards'])} cards")
             
             return JSONResponse(content={
                 "success": True,
@@ -1021,8 +1168,8 @@ async def get_hotel_cards(call_id: str):
                 "age_seconds": age
             })
         else:
-            logger.info(f"⚠️ No cached hotel cards found for call_id: {call_id}")
-            logger.info(f"📋 Available call_ids in hotel cache: {list(hotel_cards_cache.keys())}")
+            logger.info(f"No cached hotel cards found for call_id: {call_id}")
+            logger.info(f"Available call_ids in hotel cache: {list(hotel_cards_cache.keys())}")
             
             return JSONResponse(content={
                 "success": False,
@@ -1031,7 +1178,7 @@ async def get_hotel_cards(call_id: str):
             })
             
     except Exception as e:
-        logger.error(f"❌ Error fetching hotel cards: {e}")
+        logger.error(f"Error fetching hotel cards: {e}", exc_info=True)
         return JSONResponse(content={
             "success": False,
             "cards": [],
@@ -1045,7 +1192,7 @@ async def tool_calls_webhook(request: Request, background_tasks: BackgroundTasks
     Vapi tool-calls webhook endpoint (alias for /webhooks/vapi)
     This endpoint forwards all requests to the main vapi_webhook handler
     """
-    logger.info("🔧 Received request at /tool-calls - forwarding to vapi_webhook")
+    logger.info("Received request at /tool-calls - forwarding to vapi_webhook")
     return await vapi_webhook(request, background_tasks)
 
 
@@ -1070,9 +1217,9 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
         message = payload.get("message", {})
         event_type = payload.get("type") or payload.get("event") or message.get("type")
         
-        logger.info(f"📞 Vapi webhook received: {event_type}")
-        logger.info(f"📦 Full payload keys: {list(payload.keys())}")
-        logger.info(f"📦 Full payload: {json.dumps(payload, indent=2)[:500]}")  # Log first 500 chars
+        logger.info(f"Vapi webhook received: {event_type}")
+        logger.info(f"Full payload keys: {list(payload.keys())}")
+        logger.info(f"Full payload: {json.dumps(payload, indent=2)[:500]}")  # Log first 500 chars
         
         # Handle function calls from Vapi (tool-calls is the actual event type)
         # Also check if payload has function/parameters even without event type
@@ -1085,8 +1232,8 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
         )
         
         if has_function_call:
-            logger.info("🔧 Function call received from Vapi")
-            logger.info(f"📦 Event type: {event_type}")
+            logger.info("Function call received from Vapi")
+            logger.info(f"Event type: {event_type}")
             
             # Extract function details with proper precedence
             function_call = (
@@ -1096,7 +1243,7 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                 or (message.get("toolCalls", [{}])[0] if message.get("toolCalls") else {})
             )
             
-            # ✅ CRITICAL: Extract toolCallId for response
+            #  CRITICAL: Extract toolCallId for response
             tool_call_id = (
                 function_call.get("id")
                 or payload.get("toolCallId")
@@ -1126,12 +1273,12 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                 try:
                     parameters = json.loads(parameters)
                 except json.JSONDecodeError:
-                    logger.warning(f"⚠️ Could not parse parameters as JSON: {parameters}")
+                    logger.warning(f"Could not parse parameters as JSON: {parameters}")
                     parameters = {}
             
-            logger.info(f"📞 Function: {function_name}")
-            logger.info(f"📊 Parameters: {parameters}")
-            logger.info(f"🔍 Full function_call: {json.dumps(function_call, indent=2) if function_call else 'Empty'}")
+            logger.info(f"Function: {function_name}")
+            logger.info(f"Parameters: {parameters}")
+            logger.info(f"Full function_call: {json.dumps(function_call, indent=2) if function_call else 'Empty'}")
             
             # Handle search_flights function
             if function_name == "search_flights":
@@ -1144,12 +1291,12 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                     passengers = parameters.get("passengers", 1)
                     cabin_class = parameters.get("cabin_class", "economy")
                     
-                    logger.info(f"🔍 VAPI Function Call: search_flights")
+                    logger.info(f"VAPI Function Call: search_flights")
                     logger.info(f"   Raw Origin: {origin}")
                     logger.info(f"   Raw Destination: {destination}")
                     logger.info(f"   Raw Departure Date: {departure_date}")
                     
-                    # ✅ FIX: Extract just the city name if VAPI sends "Bengaluru BLR" or "Bangalore BLR"
+                    #  FIX: Extract just the city name if VAPI sends "Bengaluru BLR" or "Bangalore BLR"
                     # Split by space and take the first part (city name)
                     if origin and ' ' in origin:
                         origin = origin.split()[0]  # Get "Bengaluru" from "Bengaluru BLR"
@@ -1175,17 +1322,17 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                     origin = city_mappings.get(origin.lower(), origin)
                     destination = city_mappings.get(destination.lower(), destination)
                     
-                    logger.info(f"✅ Normalized - Origin: {origin}, Destination: {destination}")
+                    logger.info(f"Normalized - Origin: {origin}, Destination: {destination}")
                     
                     # Convert date format from YYYYMMDD to YYYY-MM-DD if needed
                     if departure_date and len(departure_date) == 8 and departure_date.isdigit():
                         # Convert 20251228 to 2025-12-28
                         departure_date = f"{departure_date[0:4]}-{departure_date[4:6]}-{departure_date[6:8]}"
-                        logger.info(f"✅ Converted date to: {departure_date}")
+                        logger.info(f"Converted date to: {departure_date}")
                     
                     # Handle natural language dates (e.g., "January 15", "jan 15")
                     if departure_date and not departure_date[0:4].isdigit():
-                        logger.info(f"🔄 Processing natural language date: {departure_date}")
+                        logger.info(f"Processing natural language date: {departure_date}")
                         
                         # Month mapping
                         month_map = {
@@ -1218,26 +1365,26 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                         
                         if day_match and month_match:
                             day = day_match.group(1).zfill(2)
-                            # ✅ FIX: For January/Feb dates, use 2025. For other months, use 2026
+                            #  FIX: For January/Feb dates, use 2025. For other months, use 2026
                             month_num = int(month_match)
                             if month_num <= 2:  # January or February
                                 year = 2025
                             else:
                                 year = 2026  # Use 2026 for months after February
                             departure_date = f"{year}-{month_match}-{day}"
-                            logger.info(f"✅ Converted natural date to: {departure_date}")
+                            logger.info(f" Converted natural date to: {departure_date}")
                         else:
-                            logger.warning(f"⚠️ Could not parse natural language date: {departure_date}")
+                            logger.warning(f" Could not parse natural language date: {departure_date}")
                             # Use default date
                             departure_date = "2025-12-20"
-                            logger.info(f"✅ Using default date: {departure_date}")
+                            logger.info(f" Using default date: {departure_date}")
                     
                     if not origin or not destination:
-                        logger.error("❌ Origin or destination is empty")
+                        logger.error(" Origin or destination is empty")
                         return JSONResponse(content={
                             "results": [{
                                 "toolCallId": tool_call_id,
-                                "result": "I need a valid origin and destination to search for flights."
+                                "result": ""  # Empty - AI will ask for missing parameters from system prompt
                             }]
                         })
                     
@@ -1245,7 +1392,7 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                     if not departure_date:
                         departure_date = "2025-12-20"
                     
-                    logger.info(f"✈️ Searching flights: {origin} -> {destination} on {departure_date}")
+                    logger.info(f"Searching flights: {origin} -> {destination} on {departure_date}")
                     
                     # Search flights using flight API
                     flight_results = flight_api.search_flights(
@@ -1259,19 +1406,19 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                     
                     if flight_results.get("success"):
                         flights = flight_results.get("outbound_flights", [])
-                        logger.info(f"✅ Found {len(flights)} flights")
+                        logger.info(f"Found {len(flights)} flights")
                         
-                        # ✅ CRITICAL: Return in VAPI's CARD FORMAT for native rendering in chat
+                        #  CRITICAL: Return in VAPI's CARD FORMAT for native rendering in chat
                         # Format flights as VAPI cards
                         cards = []
                         for flight in flights[:6]:  # Limit to 6 cards
                             card = {
                                 "title": f"{flight.get('origin')} → {flight.get('destination')}",
                                 "subtitle": f"{flight.get('airline')} | {flight.get('flight_number')}",
-                                "footer": f"⏰ {flight.get('departure_time')} - {flight.get('arrival_time')} | 💰 ₹{flight.get('price'):,} | ⏱️ {flight.get('duration')}",
+                                "footer": f" {flight.get('departure_time')} - {flight.get('arrival_time')} |  ₹{flight.get('price'):,} |  {flight.get('duration')}",
                                 "buttons": [
                                     {
-                                        "text": "Book Now ✈️",
+                                        "text": "Book Now ",
                                         "url": f"https://booking.example.com/flight/{flight.get('id', 'default')}"
                                     }
                                 ]
@@ -1282,14 +1429,14 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                         # Format: { "cards": [...], "text": "message" }
                         vapi_response = {
                             "cards": cards,
-                            "text": f"I found {len(cards)} flights from {origin} to {destination}. Here are your options:"
+                            "text": ""  # Empty - AI will generate response from system prompt
                         }
                         
-                        logger.info(f"📤 Returning to VAPI: {len(cards)} flight cards with text message")
-                        logger.info(f"✈️ First card: {json.dumps(cards[0], indent=2) if cards else 'No cards'}")
-                        logger.info(f"🔍 Full VAPI response: {json.dumps(vapi_response, indent=2)}")
+                        logger.info(f"Returning to VAPI: {len(cards)} flight cards with text message")
+                        logger.info(f"First card: {json.dumps(cards[0], indent=2) if cards else 'No cards'}")
+                        logger.info(f"Full VAPI response: {json.dumps(vapi_response, indent=2)}")
                         
-                        # ⭐ Store cards in cache for frontend polling
+                        #  Store cards in cache for frontend polling
                         call_id = payload.get("call", {}).get("id") or message.get("call", {}).get("id") or payload.get("callId") or "latest"
                         flight_cards_cache[call_id] = {
                             "cards": cards,
@@ -1298,28 +1445,28 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                             "origin": origin,
                             "destination": destination
                         }
-                        logger.info(f"💾 Cached {len(cards)} cards for call_id: {call_id}")
+                        logger.info(f"Cached {len(cards)} cards for call_id: {call_id}")
                         
-                        # ✅ Return proper Vapi format with toolCallId and results
+                        #  Return proper Vapi format with toolCallId and results
                         # Vapi expects result to be a STRING, not an object
                         return JSONResponse(
                             content={
                                 "results": [{
                                     "toolCallId": tool_call_id,
-                                    "result": vapi_response["text"],  # ✅ Message text
-                                    "cards": cards  # ✅ CRITICAL: Include cards so frontend gets them!
+                                    "result": "",  # Empty string - AI will generate response from system prompt when cards are present
+                                    "cards": cards  #  CRITICAL: Include cards so frontend gets them!
                                 }]
                             },
                             status_code=200,
                             media_type="application/json"
                         )
                     else:
-                        logger.warning("⚠️ No flights found")
+                        logger.warning(" No flights found")
                         return JSONResponse(
                             content={
                                 "results": [{
                                     "toolCallId": tool_call_id,
-                                    "result": f"I couldn't find any flights from {origin} to {destination} on {departure_date}. Please try different dates or cities."
+                                    "result": ""  # Empty - AI will handle "no flights found" response from system prompt
                                 }]
                             },
                             status_code=200,
@@ -1327,12 +1474,12 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                         )
                         
                 except Exception as e:
-                    logger.error(f"❌ Error in search_flights function: {e}", exc_info=True)
+                    logger.error(f"Error in search_flights function: {e}", exc_info=True)
                     return JSONResponse(
                         content={
                             "results": [{
                                 "toolCallId": tool_call_id,
-                                "result": f"I encountered an error while searching for flights: {str(e)}. Please try again."
+                                "result": ""  # Empty - AI will handle error response from system prompt
                             }]
                         },
                         status_code=200,
@@ -1343,55 +1490,55 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
             elif function_name == "search_hotels":
                 try:
                     logger.info("")
-                    logger.info("🏨" * 35)
-                    logger.info("🏨  SEARCH HOTELS FUNCTION CALLED")
-                    logger.info("🏨" * 35)
-                    logger.info(f"🔑 Tool Call ID: {tool_call_id}")
+                    logger.info("" * 35)
+                    logger.info("SEARCH HOTELS FUNCTION CALLED")
+                    logger.info("" * 35)
+                    logger.info(f"Tool Call ID: {tool_call_id}")
                     
                     # Extract parameters
                     city = parameters.get("city", "").strip()
-                    logger.info(f"🏨 City Parameter: {city}")
+                    logger.info(f"City Parameter: {city}")
                     
                     if not city:
-                        logger.error("❌ City parameter is empty")
+                        logger.error("City parameter is empty")
                         return JSONResponse(
                             content={
                                 "results": [{
                                     "toolCallId": tool_call_id,
-                                    "result": "I need a city name to search for hotels. Available cities: Riyadh, Jeddah, Al-Ula, Abha, Dammam"
+                                    "result": ""  # Empty - AI will ask for city from system prompt
                                 }]
                             }
                         )
                     
                     # Search hotels using hotel API
-                    logger.info(f"🔍 Searching hotels in: {city}")
+                    logger.info(f"Searching hotels in: {city}")
                     hotel_results = hotel_api.search_hotels(city)
                     
                     if not hotel_results.get("success"):
-                        logger.warning(f"⚠️ No hotels found for: {city}")
+                        logger.warning(f"No hotels found for: {city}")
                         return JSONResponse(
                             content={
                                 "results": [{
                                     "toolCallId": tool_call_id,
-                                    "result": f"I couldn't find any hotels in {city}. Try Riyadh, Jeddah, Al-Ula, Abha, or Dammam."
+                                    "result": ""  # Empty - AI will handle "no hotels found" response from system prompt
                                 }]
                             }
                         )
                     
                     hotels = hotel_results.get("hotels", [])
-                    logger.info(f"✅ Found {len(hotels)} hotels in {city}")
+                    logger.info(f"Found {len(hotels)} hotels in {city}")
                     
                     # Format hotels as Vapi cards
                     cards = []
                     for hotel in hotels[:6]:  # Limit to 6 cards
-                        stars_display = "⭐" * hotel.get("stars", 0)
+                        stars_display = "*" * hotel.get("stars", 0)
                         card = {
-                            "title": f"🏨 {hotel.get('name')}",
-                            "subtitle": f"{stars_display} {hotel.get('type')} | 📍 {hotel.get('location')}",
-                            "footer": f"💰 {hotel.get('price')} | {hotel.get('reviews', 'No reviews')[:50]}...",
+                            "title": f"{hotel.get('name')}",
+                            "subtitle": f"{stars_display} {hotel.get('type')} | {hotel.get('location')}",
+                            "footer": f"{hotel.get('price')} | {hotel.get('reviews', 'No reviews')[:50]}...",
                             "buttons": [
                                 {
-                                    "text": "🗺️ View on Google Maps",
+                                    "text": "View on Google Maps",
                                     "url": hotel.get('google_maps_url', '#')
                                 }
                             ]
@@ -1401,13 +1548,13 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                     # Vapi expects "cards" at top level with "text" for the message
                     vapi_response = {
                         "cards": cards,
-                        "text": f"I found {len(cards)} hotels in {city}. Here are your options:"
+                        "text": ""  # Empty - AI will generate response from system prompt
                     }
                     
-                    logger.info(f"📤 Returning to VAPI: {len(cards)} hotel cards with text message")
-                    logger.info(f"🏨 First card: {json.dumps(cards[0], indent=2) if cards else 'No cards'}")
+                    logger.info(f"Returning to VAPI: {len(cards)} hotel cards with text message")
+                    logger.info(f"First card: {json.dumps(cards[0], indent=2) if cards else 'No cards'}")
                     
-                    # ⭐ Store cards in cache for frontend polling
+                    #  Store cards in cache for frontend polling
                     call_id = payload.get("call", {}).get("id") or message.get("call", {}).get("id") or payload.get("callId") or "latest"
                     hotel_cards_cache[call_id] = {
                         "cards": cards,
@@ -1415,15 +1562,15 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                         "timestamp": time.time(),
                         "city": city
                     }
-                    logger.info(f"💾 Cached {len(cards)} hotel cards for call_id: {call_id}")
+                    logger.info(f"Cached {len(cards)} hotel cards for call_id: {call_id}")
                     
-                    # ✅ Return proper Vapi format with toolCallId and results
+                    #  Return proper Vapi format with toolCallId and results
                     return JSONResponse(
                         content={
                             "results": [{
                                 "toolCallId": tool_call_id,
-                                "result": vapi_response["text"],
-                                "cards": cards  # ✅ CRITICAL: Include cards so frontend gets them!
+                                "result": "",  # Empty string - AI will generate response from system prompt when cards are present
+                                "cards": cards  #  CRITICAL: Include cards so frontend gets them!
                             }]
                         },
                         status_code=200,
@@ -1431,12 +1578,12 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                     )
                         
                 except Exception as e:
-                    logger.error(f"❌ Error in search_hotels function: {e}", exc_info=True)
+                    logger.error(f"Error in search_hotels function: {e}", exc_info=True)
                     return JSONResponse(
                         content={
                             "results": [{
                                 "toolCallId": tool_call_id,
-                                "result": f"I encountered an error while searching for hotels: {str(e)}. Please try again."
+                                "result": ""  # Empty - AI will handle error response from system prompt
                             }]
                         },
                         status_code=200,
@@ -1444,12 +1591,12 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                     )
             
             else:
-                logger.warning(f"⚠️ Unknown function: {function_name}")
+                logger.warning(f"Unknown function: {function_name}")
                 return JSONResponse(
                     content={
                         "results": [{
                             "toolCallId": tool_call_id,
-                            "result": f"I don't have a function called '{function_name}'. Available functions: search_flights, search_hotels"
+                            "result": ""  # Empty - AI will handle unknown function from system prompt
                         }]
                     },
                     status_code=200,
@@ -1459,16 +1606,16 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
         # Process different Vapi events
         elif event_type == "call.started":
             call_id = payload.get('callId') or payload.get('call_id') or message.get('call', {}).get('id')
-            logger.info(f"✅ Call started: {call_id}")
+            logger.info(f"Call started: {call_id}")
             
-            # ✅ CRITICAL: Clear flight AND hotel cards cache for this call to ensure fresh start
-            logger.info("🧹 Clearing flight and hotel cards cache for new call")
+            #  CRITICAL: Clear flight AND hotel cards cache for this call to ensure fresh start
+            logger.info(" Clearing flight and hotel cards cache for new call")
             flight_cards_cache.clear()
             hotel_cards_cache.clear()
-            logger.info("✅ Both caches cleared - widget will start empty")
+            logger.info(" Both caches cleared - widget will start empty")
             
         elif event_type == "call.ended" or event_type == "end-of-call-report":
-            logger.info(f"✅ Call ended: {payload.get('callId')}")
+            logger.info(f"Call ended: {payload.get('callId')}")
             
             # Extract conversation data - handle both formats
             call_id = payload.get("callId") or payload.get("call_id") or message.get("call", {}).get("id") or message.get("callId") or message.get("id")
@@ -1497,7 +1644,7 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                 timestamp_raw = message_data.get("timestamp") or message_data.get("createdAt") or call_obj.get("createdAt")
                 
                 logger.info(f"📊 End-of-call report: {len(transcript)} messages")
-                logger.info(f"⏱️  Call duration (raw): {call_duration} (type: {type(call_duration).__name__})")
+                logger.info(f" Call duration (raw): {call_duration} (type: {type(call_duration).__name__})")
                 logger.info(f"📅 Timestamp (raw): {timestamp_raw}")
             else:
                 # Original format
@@ -1511,7 +1658,7 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                 timestamp_raw = call_data.get("timestamp") or call_data.get("createdAt") or payload.get("timestamp")
                 
                 logger.info(f"📊 Call ended: {len(transcript) if transcript else 0} messages")
-                logger.info(f"⏱️  Call duration (raw): {call_duration} (type: {type(call_duration).__name__})")
+                logger.info(f" Call duration (raw): {call_duration} (type: {type(call_duration).__name__})")
                 logger.info(f"📅 Timestamp (raw): {timestamp_raw}")
             
             # Convert Unix timestamp (milliseconds) to readable date format
@@ -1537,7 +1684,7 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
                     
                     logger.info(f"📅 Timestamp (formatted): {timestamp}")
                 except Exception as e:
-                    logger.warning(f"⚠️ Could not format timestamp: {e}")
+                    logger.warning(f"Could not format timestamp: {e}")
                     timestamp = str(timestamp_raw) if timestamp_raw else None
             
             # Get user email and name
@@ -1545,26 +1692,26 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
             user_name = metadata.get("user_name") or call_data.get("customer_name", "Traveler")
             
             # Log extracted metadata
-            logger.info(f"📋 Session ID: {call_id}")
+            logger.info(f" Session ID: {call_id}")
             logger.info(f"📅 Timestamp: {timestamp}")
             
             # Extract booking details from transcript or metadata
             booking_details = None
             if metadata.get("booking_details"):
                 booking_details = metadata.get("booking_details")
-                logger.info(f"✈️ Booking details found in metadata")
+                logger.info(f" Booking details found in metadata")
             elif call_data.get("booking_details"):
                 booking_details = call_data.get("booking_details")
-                logger.info(f"✈️ Booking details found in call_data")
+                logger.info(f" Booking details found in call_data")
             else:
                 # Try to extract from transcript messages
                 booking_details = extract_booking_from_transcript(transcript, summary)
                 if booking_details:
-                    logger.info(f"✈️ Booking details extracted from transcript")
+                    logger.info(f" Booking details extracted from transcript")
             
             # Generate structured summary (Main Topic, Key Points, Actions, Next Steps)
             structured_summary = generate_structured_summary(transcript, booking_details)
-            logger.info(f"📋 Generated structured summary")
+            logger.info(f" Generated structured summary")
             
             # Store the summary in memory for retrieval by the widget
             # Format flight_details for frontend display
@@ -1599,14 +1746,14 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
             # Store with call ID if available
             if call_id:
                 call_summaries[call_id] = summary_data
-                logger.info(f"💾 Stored summary for call ID: {call_id}")
+                logger.info(f" Stored summary for call ID: {call_id}")
             else:
-                logger.warning(f"⚠️ No call ID found, using fallback storage")
+                logger.warning(f" No call ID found, using fallback storage")
             
             # Always store as latest (fallback for when call ID is missing)
             global latest_call_summary
             latest_call_summary = summary_data
-            logger.info(f"💾 Stored as latest call summary (fallback)")
+            logger.info(f" Stored as latest call summary (fallback)")
             
             # Send email in background - check if booking is confirmed
             booking_confirmed = booking_details and (
@@ -1615,22 +1762,22 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
             )
             
             background_tasks.add_task(
-                smtp_email_service.send_transcript_with_summary,
-                to_email=user_email,
-                user_name=user_name,
-                summary=structured_summary,  # Use structured summary instead of Vapi's
-                transcript=transcript,
-                call_duration=call_duration,
-                session_id=call_id,
-                timestamp=timestamp,
-                booking_details=booking_details,
-                is_booking_confirmation=booking_confirmed
+                _send_email_with_error_handling,
+                user_email,
+                user_name,
+                structured_summary,
+                transcript,
+                call_duration,
+                call_id,
+                timestamp,
+                booking_details,
+                booking_confirmed
             )
             
             if booking_confirmed:
-                logger.info(f"✈️ Booking confirmation email queued for {user_email}")
+                logger.info(f" Booking confirmation email queued for {user_email}")
             else:
-                logger.info(f"📧 Conversation summary email queued for {user_email}")
+                logger.info(f" Conversation summary email queued for {user_email}")
             
             # Return the summary to Vapi so it can be displayed in the widget
             return {
@@ -1644,7 +1791,7 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
             
         elif event_type == "message.received":
             message = payload.get("message", {})
-            logger.info(f"💬 Message: {message}")
+            logger.info(f" Message: {message}")
             
         elif event_type == "speech.start":
             logger.info(f"🎤 User started speaking")
@@ -1653,7 +1800,7 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
             logger.info(f"🎤 User stopped speaking")
         
         # Send acknowledgment - ensure proper JSONResponse for all cases
-        logger.info(f"✅ Webhook processed successfully: {event_type}")
+        logger.info(f" Webhook processed successfully: {event_type}")
         return JSONResponse(
             content={
                 "received": True,
@@ -1665,8 +1812,8 @@ async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
         )
         
     except Exception as e:
-        logger.error(f"❌ Error handling Vapi webhook: {e}")
-        logger.error(f"❌ Traceback:", exc_info=True)
+        logger.error(f" Error handling Vapi webhook: {e}")
+        logger.error(f" Traceback:", exc_info=True)
         return JSONResponse(
             content={
                 "received": False,
@@ -1706,7 +1853,7 @@ async def process_query_with_openai(request: Dict[str, Any]):
         if not extraction_result["success"]:
             return {
                 "success": False,
-                "message": "I couldn't understand your flight request. Could you please provide more details?",
+                "error": "extraction_failed",
                 "flights": []
             }
         
@@ -1722,7 +1869,8 @@ async def process_query_with_openai(request: Dict[str, Any]):
             if not extracted_data.get("origin") or not extracted_data.get("destination"):
                 return {
                     "success": False,
-                    "message": "I need both origin and destination to search flights. Where would you like to fly from and to?",
+                    "error": "missing_parameters",
+                    "required": ["origin", "destination"],
                     "flights": [],
                     "extracted_data": extracted_data
                 }
@@ -1730,7 +1878,8 @@ async def process_query_with_openai(request: Dict[str, Any]):
             if not extracted_data.get("departure_date"):
                 return {
                     "success": False,
-                    "message": "When would you like to travel? Please provide a departure date.",
+                    "error": "missing_parameters",
+                    "required": ["departure_date"],
                     "flights": [],
                     "extracted_data": extracted_data
                 }
@@ -1748,7 +1897,7 @@ async def process_query_with_openai(request: Dict[str, Any]):
             if not flight_search_result["success"]:
                 return {
                     "success": False,
-                    "message": "Sorry, I couldn't find any flights for that route.",
+                    "error": "no_flights_found",
                     "flights": []
                 }
             
@@ -1756,18 +1905,10 @@ async def process_query_with_openai(request: Dict[str, Any]):
             outbound_flights = flight_search_result["outbound_flights"]
             formatted_flights = openai_service.format_flights_for_display(outbound_flights)
             
-            # Generate natural language response
-            response_message = openai_service.generate_flight_response(
-                user_message,
-                formatted_flights[:3],
-                f"Found {len(outbound_flights)} flights"
-            )
-            
-            logger.info(f"✈️ Found {len(formatted_flights)} flights")
+            logger.info(f" Found {len(formatted_flights)} flights")
             
             return {
                 "success": True,
-                "message": response_message,
                 "flights": formatted_flights,
                 "search_criteria": flight_search_result["search_criteria"],
                 "intent": intent
@@ -1776,22 +1917,20 @@ async def process_query_with_openai(request: Dict[str, Any]):
         elif intent == "flight_status":
             return {
                 "success": True,
-                "message": "Flight status check coming soon! Please provide a flight number.",
+                "error": "not_implemented",
                 "flights": [],
                 "intent": intent
             }
         
         else:  # general_inquiry
-            response = openai_service.generate_flight_response(user_message)
             return {
                 "success": True,
-                "message": response,
                 "flights": [],
                 "intent": intent
             }
         
     except Exception as e:
-        logger.error(f"❌ Error processing query: {e}")
+        logger.error(f" Error processing query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1808,7 +1947,7 @@ async def search_flights_direct(request: Dict[str, Any]):
         destination = request.get("destination")
         departure_date = request.get("departure_date", "2025-12-20")
         
-        logger.info(f"🔍 Direct flight search: {origin} → {destination} on {departure_date}")
+        logger.info(f" Direct flight search: {origin} → {destination} on {departure_date}")
         
         if not origin or not destination:
             return {
@@ -1826,7 +1965,7 @@ async def search_flights_direct(request: Dict[str, Any]):
             cabin_class=request.get("cabin_class", "economy")
         )
         
-        logger.info(f"✅ Direct search returned: {len(flight_results.get('outbound_flights', []))} flights")
+        logger.info(f" Direct search returned: {len(flight_results.get('outbound_flights', []))} flights")
         
         return {
             "success": flight_results.get("success", False),
@@ -1836,7 +1975,7 @@ async def search_flights_direct(request: Dict[str, Any]):
         }
         
     except Exception as e:
-        logger.error(f"❌ Error in direct flight search: {e}")
+        logger.error(f" Error in direct flight search: {e}")
         return {
             "success": False,
             "message": f"Error: {str(e)}",
@@ -1865,7 +2004,7 @@ async def vapi_search_flights(request: Dict[str, Any]):
         logger.info(f"VAPI flight search: {origin} → {destination} on {departure_date}")
         
         if not origin or not destination or not departure_date:
-            return {"result": "I need the origin, destination, and departure date to search for flights."}
+            return {"error": "missing_parameters", "required": ["origin", "destination", "departure_date"]}
         
         # Use the configured flight_api (Mock DB by default)
         flight_search_result = flight_api.search_flights(
@@ -1878,42 +2017,34 @@ async def vapi_search_flights(request: Dict[str, Any]):
         
         if not flight_search_result.get("success"):
             return {
-                "result": f"I couldn't find any flights from {origin} to {destination} on {departure_date}. Would you like to try a different date?"
+                "error": "no_flights_found",
+                "origin": origin,
+                "destination": destination,
+                "date": departure_date
             }
         
         outbound_flights = flight_search_result.get("outbound_flights", [])
         
         if len(outbound_flights) == 0:
             return {
-                "result": f"I couldn't find any flights from {origin} to {destination} on {departure_date}. Would you like to try a different date?"
+                "error": "no_flights_found",
+                "origin": origin,
+                "destination": destination,
+                "date": departure_date
             }
         
-        # Generate simple message for VAPI to speak
-        flight_count = len(outbound_flights)
-        top_flights = outbound_flights[:3]
+        # Return flight data only - AI will generate response from system prompt
+        logger.info(f" Found {len(outbound_flights)} flights")
         
-        # Build simple, natural response
-        response_parts = [f"I found {flight_count} flight options from {origin} to {destination}."]
-        response_parts.append("Here are the top 3:")
-        
-        for idx, flight in enumerate(top_flights, 1):
-            price = flight.get("price", 0)
-            airline = flight.get("airline", "Unknown")
-            flight_num = flight.get("flight_number", "N/A")
-            duration = flight.get("duration", "N/A")
-            
-            response_parts.append(f"{idx}. {airline} flight {flight_num}, {duration}, {int(price)} rupees.")
-        
-        result_text = " ".join(response_parts)
-        
-        logger.info(f"✅ VAPI response: {result_text[:100]}...")
-        
-        # Return in VAPI-friendly format
-        return {"result": result_text}
+        return {
+            "success": True,
+            "flights": outbound_flights,
+            "count": len(outbound_flights)
+        }
         
     except Exception as e:
-        logger.error(f"❌ Error in VAPI flight search: {e}")
-        return {"result": "I encountered an error searching for flights. Please try again."}
+        logger.error(f" Error in VAPI flight search: {e}")
+        return {"error": "search_failed", "message": str(e)}
 
 
 @app.get("/api/flight/{flight_id}")
@@ -1932,7 +2063,7 @@ async def get_flight_details(flight_id: str):
 async def search_hotels(request: HotelSearchRequest):
     """Search for hotels"""
     try:
-        logger.info(f"🏨 Hotel search: {request.destination}")
+        logger.info(f" Hotel search: {request.destination}")
         
         result = hotel_api.search_hotels(
             destination=request.destination,
@@ -1946,7 +2077,7 @@ async def search_hotels(request: HotelSearchRequest):
         return result
         
     except Exception as e:
-        logger.error(f"Error searching hotels: {e}")
+        logger.error(f" Error searching hotels: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1972,7 +2103,7 @@ async def generate_rich_link(request: Dict[str, Any]):
         if not location_name:
             raise HTTPException(status_code=400, detail="location_name is required")
         
-        # ⭐ Use local rich_link_formatter function (no longer using vapi.tools)
+        #  Use local rich_link_formatter function (no longer using vapi.tools)
         result = rich_link_formatter(
             location_name=location_name,
             location_type=location_type,
@@ -1983,7 +2114,7 @@ async def generate_rich_link(request: Dict[str, Any]):
         return result
         
     except Exception as e:
-        logger.error(f"Error generating rich link: {e}")
+        logger.error(f" Error generating rich link: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1993,7 +2124,7 @@ async def generate_rich_link(request: Dict[str, Any]):
 async def create_booking(request: BookingRequest):
     """Create a new booking"""
     try:
-        logger.info(f"📝 Creating {request.booking_type} booking")
+        logger.info(f" Creating {request.booking_type} booking")
         
         result = booking_service.create_booking(
             booking_type=request.booking_type,
@@ -2006,7 +2137,7 @@ async def create_booking(request: BookingRequest):
         return result
         
     except Exception as e:
-        logger.error(f"Error creating booking: {e}")
+        logger.error(f" Error creating booking: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2024,30 +2155,7 @@ async def get_booking_status(booking_reference: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting booking status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/cancel-booking")
-async def cancel_booking(request: Dict[str, str]):
-    """Cancel a booking"""
-    try:
-        booking_reference = request.get("booking_reference")
-        
-        if not booking_reference:
-            raise HTTPException(status_code=400, detail="booking_reference required")
-        
-        result = booking_service.cancel_booking(booking_reference)
-        
-        if not result["success"]:
-            raise HTTPException(status_code=404, detail=result["error"])
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error cancelling booking: {e}")
+        logger.error(f" Error getting booking status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2058,7 +2166,7 @@ async def get_customer_bookings(customer_phone: str):
         bookings = booking_service.get_customer_bookings(customer_phone)
         return {"bookings": bookings}
     except Exception as e:
-        logger.error(f"Error fetching customer bookings: {e}")
+        logger.error(f" Error fetching customer bookings: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2066,7 +2174,7 @@ async def get_customer_bookings(customer_phone: str):
 async def send_transcript(request: ConversationTranscriptRequest):
     """Send conversation transcript to user's email"""
     try:
-        logger.info(f"📧 Sending transcript to {request.recipient_email}")
+        logger.info(f" Sending transcript to {request.recipient_email}")
         
         success = smtp_email_service.send_transcript_email(
             recipient_email=request.recipient_email,
@@ -2088,7 +2196,7 @@ async def send_transcript(request: ConversationTranscriptRequest):
             }
         
     except Exception as e:
-        logger.error(f"Error sending transcript: {e}")
+        logger.error(f" Error sending transcript: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2096,7 +2204,7 @@ async def send_transcript(request: ConversationTranscriptRequest):
 async def send_call_summary_email(request: CallSummaryEmailRequest):
     """Send call summary email (used by frontend after call ends)"""
     try:
-        logger.info(f"📧 Sending call summary email to {request.recipient_email}")
+        logger.info(f" Sending call summary email to {request.recipient_email}")
         
         # Convert transcript list to messages format if needed
         messages = request.transcript if request.transcript else []
@@ -2121,20 +2229,20 @@ async def send_call_summary_email(request: CallSummaryEmailRequest):
         )
         
         if success:
-            logger.info(f"✅ Call summary email sent successfully to {request.recipient_email}")
+            logger.info(f" Call summary email sent successfully to {request.recipient_email}")
             return {
                 "success": True,
                 "message": f"Call summary sent successfully to {request.recipient_email}"
             }
         else:
-            logger.warning(f"⚠️ Failed to send call summary email")
+            logger.warning(f" Failed to send call summary email")
             return {
                 "success": False,
                 "message": "Failed to send call summary"
             }
         
     except Exception as e:
-        logger.error(f"❌ Error sending call summary email: {e}", exc_info=True)
+        logger.error(f" Error sending call summary email: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2148,7 +2256,7 @@ async def send_booking_confirmation(
 ):
     """Send booking confirmation with transcript to email"""
     try:
-        logger.info(f"📧 Sending booking confirmation to {recipient_email}")
+        logger.info(f" Sending booking confirmation to {recipient_email}")
         
         success = smtp_email_service.send_booking_confirmation_email(
             recipient_email=recipient_email,
@@ -2170,7 +2278,7 @@ async def send_booking_confirmation(
             }
         
     except Exception as e:
-        logger.error(f"Error sending booking confirmation: {e}")
+        logger.error(f" Error sending booking confirmation: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2178,7 +2286,7 @@ async def send_booking_confirmation(
 async def search_flights(request: Request):
     """
     Universal flight search endpoint for Vapi voice assistant
-    Supports ANY airport pair with real-time data via MCP/Bright Data
+    Uses mock database for flight data
     
     Request body:
     {
@@ -2198,7 +2306,7 @@ async def search_flights(request: Request):
         passengers = data.get("passengers", 1)
         cabin_class = data.get("cabin_class", "economy")
         
-        logger.info(f"🔍 Universal search: {origin} → {destination} on {departure_date}")
+        logger.info(f" Universal search: {origin} → {destination} on {departure_date}")
         
         if not origin or not destination:
             return JSONResponse({
@@ -2207,36 +2315,9 @@ async def search_flights(request: Request):
                 "flights": []
             })
         
-        # First, try Bright Data real-time API if available
-        if brightdata_available:
-            logger.info(f"🌐 Attempting real-time search via Bright Data for {origin}→{destination}")
-            
-            try:
-                flight_results = flight_api.search_flights(
-                    origin=origin,
-                    destination=destination,
-                    departure_date=departure_date,
-                    passengers=passengers,
-                    cabin_class=cabin_class
-                )
-                
-                if flight_results.get("success") and flight_results.get("outbound_flights"):
-                    logger.info(f"✅ Bright Data returned {len(flight_results.get('outbound_flights', []))} flights")
-                    
-                    flights = flight_results.get("outbound_flights", [])
-                    return JSONResponse({
-                        "success": True,
-                        "source": "bright_data_realtime",
-                        "message": f"Found {len(flights)} real-time flights",
-                        "flights": flights,
-                        "total": len(flights)
-                    })
-            except Exception as e:
-                logger.warning(f"⚠️ Bright Data search failed: {e}")
-        
-        # Fallback to mock database
+        # Use mock database
         if mock_db_available:
-            logger.info(f"📦 Using mock database as fallback for {origin}→{destination}")
+            logger.info(f" Using mock database for {origin}→{destination}")
             
             flight_results = flight_api.search_flights(
                 origin=origin,
@@ -2266,128 +2347,11 @@ async def search_flights(request: Request):
         }, status_code=404)
         
     except Exception as e:
-        logger.error(f"❌ Error in universal search: {e}")
+        logger.error(f" Error in universal search: {e}")
         return JSONResponse({
             "success": False,
             "message": f"Error: {str(e)}",
             "flights": []
-        }, status_code=500)
-
-
-@app.post("/mcp/search-flights")
-async def mcp_search_flights(request: Request):
-    """
-    MCP-powered flight search endpoint
-    Connects directly to real-time flight APIs for ANY airport pair
-    
-    Returns flight cards ready for widget display
-    """
-    try:
-        data = await request.json()
-        
-        origin = data.get("origin", "").upper()
-        destination = data.get("destination", "").upper()
-        departure_date = data.get("departure_date", "2025-12-20")
-        
-        logger.info(f"📡 MCP Flight Search: {origin} → {destination}")
-        
-        # Import MCP client
-        try:
-            from mcp_client import mcp_client, log_mcp_status
-            
-            # Check MCP connection
-            is_connected = log_mcp_status()
-            
-            if not is_connected:
-                logger.warning("⚠️ MCP not connected, falling back to mock database")
-                # Fall through to mock database
-            else:
-                logger.info("✅ MCP connected, attempting real-time search")
-                
-                # Try async get_live_flights via MCP
-                import asyncio
-                try:
-                    mcp_result = await mcp_client.get_live_flights(origin, destination, departure_date)
-                    
-                    if mcp_result.get("success") and mcp_result.get("flights"):
-                        flights = mcp_result.get("flights", [])
-                        logger.info(f"✅ MCP returned {len(flights)} real-time flights")
-                        
-                        return JSONResponse({
-                            "success": True,
-                            "source": "mcp_realtime",
-                            "message": f"Found {len(flights)} real-time flights",
-                            "flights": flights,
-                            "total": len(flights)
-                        })
-                except Exception as mcp_err:
-                    logger.warning(f"⚠️ MCP search failed: {mcp_err}")
-        
-        except ImportError:
-            logger.warning("⚠️ MCP client not available")
-        
-        # Fallback: Use mock database
-        logger.info("📦 Falling back to mock database")
-        
-        flight_results = flight_api.search_flights(
-            origin=origin,
-            destination=destination,
-            departure_date=departure_date,
-            passengers=data.get("passengers", 1),
-            cabin_class=data.get("cabin_class", "economy")
-        )
-        
-        if flight_results.get("success"):
-            flights = flight_results.get("outbound_flights", [])
-            return JSONResponse({
-                "success": True,
-                "source": "mock_fallback",
-                "message": f"Found {len(flights)} flights",
-                "flights": flights,
-                "total": len(flights)
-            })
-        
-        return JSONResponse({
-            "success": False,
-            "message": f"No flights found",
-            "flights": []
-        }, status_code=404)
-        
-    except Exception as e:
-        logger.error(f"❌ Error in MCP search: {e}")
-        return JSONResponse({
-            "success": False,
-            "message": f"Error: {str(e)}",
-            "flights": []
-        }, status_code=500)
-
-
-@app.get("/mcp/status")
-async def mcp_status():
-    """
-    Check MCP connection status and capabilities
-    """
-    try:
-        from mcp_client import log_mcp_status, mcp_client
-        
-        is_connected = log_mcp_status()
-        
-        return JSONResponse({
-            "mcp_connected": is_connected,
-            "brightdata_available": bool(mcp_client.brightdata_token),
-            "mock_database_available": mock_db_available,
-            "supported_routes": [
-                "BLR→JED", "BLR→RUH", "BLR→DXB",
-                "DEL→JED", "DEL→RUH", "DEL→DXB",
-                "BOM→JED", "BOM→RUH", "BOM→DXB",
-                "Any airport pair (with real-time API)"
-            ]
-        })
-    except Exception as e:
-        logger.error(f"❌ Error getting MCP status: {e}")
-        return JSONResponse({
-            "mcp_connected": False,
-            "error": str(e)
         }, status_code=500)
 
 
@@ -2400,7 +2364,7 @@ if __name__ == "__main__":
     
     logger.info(f"""
     ╔═══════════════════════════════════════════════════╗
-    ║   🎙️  Travel.ai Voice Bot API Server            ║
+    ║     Travel.ai Voice Bot API Server            ║
     ║                                                   ║
     ║   Server running on: http://{host}:{port}       ║
     ║   API docs: http://{host}:{port}/docs           ║

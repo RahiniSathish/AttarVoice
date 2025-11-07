@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import FlightCard from './components/FlightCard';
 import HotelCard from './components/HotelCard';
@@ -519,7 +519,7 @@ function App() {
         <div className="call-summary-section">
           <div className="summary-card">
             <div className="summary-header">
-              <span className="summary-icon">📊</span>
+              <span className="summary-icon"></span>
               <h3>Call Summary</h3>
               <button 
                 className="close-summary" 
@@ -531,24 +531,22 @@ function App() {
             </div>
             
             <div className="summary-content">
-              {/* Main Summary */}
+              {/* Main Summary - Simple text only */}
               {callSummary.summary && (
                 <div className="summary-section">
-                  <h4>📝 Summary</h4>
+                  <h4>Summary</h4>
                   <div className="summary-text">
                     {(() => {
-                      // Handle different summary formats
+                      // Handle different summary formats - just display as plain text
                       let summaryDisplay = callSummary.summary;
                       
-                      // If it's an object with a summary property
+                      // If it's an object, try to extract the summary text
                       if (typeof callSummary.summary === 'object' && callSummary.summary !== null) {
                         if (callSummary.summary.summary) {
                           summaryDisplay = callSummary.summary.summary;
-                        } else if (callSummary.summary.main_topic) {
-                          // Structured summary format
-                          summaryDisplay = `◆ Main Topic/Purpose\n\n${callSummary.summary.main_topic || 'N/A'}\n\n◆ Key Points Discussed\n\n${(callSummary.summary.key_points || []).map((point, idx) => `• ${point}`).join('\n')}\n\n◆ Actions Taken\n\n${callSummary.summary.actions_taken || 'N/A'}\n\n◆ Next Steps\n\n${callSummary.summary.next_steps || 'N/A'}`;
                         } else {
-                          summaryDisplay = JSON.stringify(callSummary.summary, null, 2);
+                          // If it's structured, just get the main topic or convert to string
+                          summaryDisplay = callSummary.summary.main_topic || JSON.stringify(callSummary.summary, null, 2);
                         }
                       }
                       
@@ -565,67 +563,18 @@ function App() {
               {/* Call Timestamp */}
               {callSummary.timestamp && (
                 <div className="summary-section">
-                  <h4>📅 Call Date & Time</h4>
+                  <h4>Call Date & Time</h4>
                   <p>{callSummary.timestamp}</p>
                 </div>
               )}
               
-              {/* Flight Details */}
-              {callSummary.flight_details && (
-                <div className="summary-section">
-                  <h4>✈️ Flight Details</h4>
-                  <div className="detail-grid">
-                    <div className="detail-item">
-                      <span className="detail-label">From:</span>
-                      <span className="detail-value">{callSummary.flight_details.origin}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="detail-label">To:</span>
-                      <span className="detail-value">{callSummary.flight_details.destination}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="detail-label">Date:</span>
-                      <span className="detail-value">{callSummary.flight_details.date}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="detail-label">Passengers:</span>
-                      <span className="detail-value">{callSummary.flight_details.passengers || 1}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Booking Status */}
-              {callSummary.booking_confirmed && (
-                <div className="summary-section booking-status">
-                  <h4>✅ Booking Confirmed</h4>
-                  <p>Confirmation number: <strong>{callSummary.booking_id}</strong></p>
-                  <p className="email-note">📧 A detailed confirmation has been sent to your email</p>
-                </div>
-              )}
-              
               {/* Email Status */}
-              <div className="summary-section email-status">
-                <h4>📧 Email Sent</h4>
-                <p>Call summary and transcript have been sent to: <strong>{callSummary.customer_email || 'attartravel25@gmail.com'}</strong></p>
-              </div>
-              
-              {/* Next Steps */}
-              <div className="summary-section next-steps">
-                <h4>🎯 Next Steps</h4>
-                <ul>
-                  <li>Check your email for detailed call summary and transcript</li>
-                  {callSummary.booking_confirmed && (
-                    <>
-                      <li>Complete payment using the link sent to your email</li>
-                      <li>You'll receive your e-ticket once payment is confirmed</li>
-                    </>
-                  )}
-                  {!callSummary.booking_confirmed && (
-                    <li>Contact us if you need to complete your booking</li>
-                  )}
-                </ul>
-              </div>
+              {callSummary.customer_email && (
+                <div className="summary-section email-status">
+                  <h4>Email Sent</h4>
+                  <p>Call summary and transcript have been sent to: <strong>{callSummary.customer_email || 'attartravel25@gmail.com'}</strong></p>
+                </div>
+              )}
             </div>
           </div>
         </div>

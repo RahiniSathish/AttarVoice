@@ -32,8 +32,15 @@ class EmailService:
         self.smtp_password = os.getenv("SMTP_PASSWORD")
         self.from_email = os.getenv("FROM_EMAIL", "noreply@travel.ai")
         
+        # Log configuration status
+        logger.info(f"Email Service initialized:")
+        logger.info(f"  SMTP Host: {self.smtp_host}:{self.smtp_port}")
+        logger.info(f"  SMTP Username: {self.smtp_username}")
+        logger.info(f"  SMTP Password configured: {'Yes' if self.smtp_password else 'No'}")
+        logger.info(f"  From Email: {self.from_email}")
+        
         if not self.smtp_password:
-            logger.warning("⚠️ SMTP_PASSWORD not configured")
+            logger.warning("SMTP_PASSWORD not configured - emails will not be sent!")
     
     
     def send_email(
@@ -57,7 +64,7 @@ class EmailService:
         """
         try:
             if not self.smtp_password:
-                logger.error("❌ SMTP_PASSWORD not configured")
+                logger.error(" SMTP_PASSWORD not configured")
                 return False
             
             # Create message
@@ -75,7 +82,7 @@ class EmailService:
                 msg.attach(part2)
             
             # Send email via SMTP
-            logger.info(f"📧 Connecting to SMTP: {self.smtp_host}:{self.smtp_port}")
+            logger.info(f" Connecting to SMTP: {self.smtp_host}:{self.smtp_port}")
             
             with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
                 server.set_debuglevel(0)  # Set to 1 for debugging
@@ -84,20 +91,24 @@ class EmailService:
                 logger.info(f"🔐 Logging in as: {self.smtp_username}")
                 server.login(self.smtp_username, self.smtp_password)
                 
-                logger.info(f"📤 Sending email to: {to_email}")
+                logger.info(f" Sending email to: {to_email}")
                 server.send_message(msg)
                 
-                logger.info(f"✅ Email sent successfully to {to_email}")
+                logger.info(f" Email sent successfully to {to_email}")
                 return True
         
         except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"❌ SMTP Authentication failed: {e}")
+            logger.error(f"SMTP Authentication failed: {e}", exc_info=True)
+            logger.error(f"SMTP Username: {self.smtp_username}")
+            logger.error(f"SMTP Host: {self.smtp_host}:{self.smtp_port}")
+            logger.error(f"SMTP Password configured: {'Yes' if self.smtp_password else 'No'}")
             return False
         except smtplib.SMTPException as e:
-            logger.error(f"❌ SMTP error: {e}")
+            logger.error(f"SMTP error: {e}", exc_info=True)
             return False
         except Exception as e:
-            logger.error(f"❌ Error sending email: {e}")
+            logger.error(f"Error sending email: {e}", exc_info=True)
+            logger.error(f"Error type: {type(e).__name__}")
             return False
     
     
@@ -155,7 +166,7 @@ class EmailService:
             
             # Send email - use booking confirmation subject if booking is confirmed
             if is_booking_confirmation and booking_details:
-                subject = f"✈️ Flight Booking Confirmation - {booking_details.get('booking_id', 'Booking')}"
+                subject = f" Flight Booking Confirmation - {booking_details.get('booking_id', 'Booking')}"
             else:
                 subject = "Your Attar Travel Conversation Summary"
             
@@ -167,7 +178,8 @@ class EmailService:
             )
         
         except Exception as e:
-            logger.error(f"❌ Error in send_transcript_with_summary: {e}")
+            logger.error(f"Error in send_transcript_with_summary: {e}", exc_info=True)
+            logger.error(f"To email: {to_email}, User name: {user_name}")
             return False
     
     
@@ -250,7 +262,7 @@ class EmailService:
         if booking_details:
             lines.extend([
                 "=" * 60,
-                "✈️ FLIGHT BOOKING CONFIRMATION",
+                " FLIGHT BOOKING CONFIRMATION",
                 "=" * 60,
                 "",
             ])
@@ -304,7 +316,7 @@ class EmailService:
             
             lines.extend([
                 f"BOOKING ID: {booking_id}",
-                "STATUS: ✅ CONFIRMED",
+                "STATUS:  CONFIRMED",
                 "",
             ])
         
@@ -323,36 +335,34 @@ class EmailService:
     
     def _format_summary_html(self, summary: str) -> str:
         """
-        Format the structured summary text into clean HTML with proper styling.
-        Converts emoji headers and bullet points into styled HTML sections.
+        Format the simple summary text into clean HTML with proper styling.
+        Simple format: just plain text paragraphs.
         """
-        import re
-        
-        # Split summary into lines
-        lines = summary.split('\n')
-        html_parts = []
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
+        # Split summary into sentences/paragraphs
+        # If summary contains periods, split by sentences; otherwise treat as single paragraph
+        if '. ' in summary:
+            # Split by sentences but keep them together
+            sentences = summary.split('. ')
+            formatted_sentences = []
+            for i, sentence in enumerate(sentences):
+                if sentence.strip():
+                    # Add period back except for last sentence if it already has one
+                    if i < len(sentences) - 1:
+                        formatted_sentences.append(sentence.strip() + '.')
+                    else:
+                        # Last sentence - check if it already ends with period
+                        if not sentence.strip().endswith('.'):
+                            formatted_sentences.append(sentence.strip() + '.')
+                        else:
+                            formatted_sentences.append(sentence.strip())
             
-            # Check if line is a section header (starts with emoji)
-            if line.startswith('📍') or line.startswith('🎯') or line.startswith('✅') or line.startswith('📝'):
-                # Extract emoji and title, but only show title (remove emoji)
-                parts = line.split(' ', 1)
-                if len(parts) == 2:
-                    emoji, title = parts
-                    html_parts.append(f'<div style="margin-top: 20px; margin-bottom: 10px;"><strong style="font-size: 16px; color: #1F2937;">{title}</strong></div>')
-            elif line.startswith('•'):
-                # Bullet point
-                text = line[1:].strip()
-                html_parts.append(f'<div style="margin-left: 20px; margin-bottom: 8px;">• {text}</div>')
-            else:
-                # Regular paragraph text
-                html_parts.append(f'<div style="margin-bottom: 12px;">{line}</div>')
+            # Format as clean paragraphs
+            html = '<div style="margin-bottom: 12px; line-height: 1.6; color: #374151;">' + ' '.join(formatted_sentences) + '</div>'
+        else:
+            # Single paragraph
+            html = f'<div style="margin-bottom: 12px; line-height: 1.6; color: #374151;">{summary}</div>'
         
-        return '\n'.join(html_parts)
+        return html
     
     
     def _generate_booking_card_html(self, booking_details: Dict) -> str:
@@ -393,7 +403,7 @@ class EmailService:
         # Build the HTML card
         html = f'''
         <div style="margin-bottom: 30px;">
-            <h2 style="margin: 0 0 20px 0; color: #374151; font-size: 20px; font-weight: 600;">✈️ Flight Booking Confirmation</h2>
+            <h2 style="margin: 0 0 20px 0; color: #374151; font-size: 20px; font-weight: 600;"> Flight Booking Confirmation</h2>
             
             <!-- Flight Card Container -->
             <div style="background: #FFFFFF; border: 2px solid #E5E7EB; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
@@ -402,7 +412,7 @@ class EmailService:
                 <div style="background: linear-gradient(135deg, #DC2626 0%, #991B1B 100%); padding: 15px 20px; display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; align-items: center;">
                         <div style="width: 40px; height: 40px; background: #FFFFFF; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 12px;">
-                            <span style="font-size: 20px;">✈️</span>
+                            <span style="font-size: 20px;"></span>
                         </div>
                         <div>
                             <div style="color: #FFFFFF; font-size: 18px; font-weight: 700; margin-bottom: 2px;">{airline}</div>
@@ -447,7 +457,7 @@ class EmailService:
             html += f'''
                 <!-- Return Flight -->
                 <div style="padding: 25px 20px;">
-                    <div style="color: #6366F1; font-size: 13px; font-weight: 600; margin-bottom: 15px;">↩️ RETURN FLIGHT</div>
+                    <div style="color: #6366F1; font-size: 13px; font-weight: 600; margin-bottom: 15px;"> RETURN FLIGHT</div>
                     <div style="display: flex; align-items: center; justify-content: space-between;">
                         <div style="flex: 1;">
                             <div style="color: #9CA3AF; font-size: 12px; margin-bottom: 4px;">{return_date}</div>
@@ -577,7 +587,7 @@ class EmailService:
                             <tr>
                                 <td style="background: #000000; padding: 40px; text-align: center;">
                                     <h1 style="margin: 0; color: #FFFFFF; font-size: 28px; font-weight: 600;">Attar Travel</h1>
-                                    <p style="margin: 10px 0 0 0; color: #FFFFFF; font-size: 16px;">{('✈️ Flight Booking Confirmation' if is_booking_confirmation and booking_details else 'Your Conversation Summary')}</p>
+                                    <p style="margin: 10px 0 0 0; color: #FFFFFF; font-size: 16px;">{(' Flight Booking Confirmation' if is_booking_confirmation and booking_details else 'Your Conversation Summary')}</p>
                                 </td>
                             </tr>
                             

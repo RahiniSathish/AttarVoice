@@ -229,42 +229,8 @@ class BookingService:
                 "error": str(e)
             }
     
-    def cancel_booking(self, booking_reference: str) -> Dict[str, Any]:
-        """Cancel a booking"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE bookings
-                SET status = 'cancelled', updated_at = ?
-                WHERE booking_reference = ?
-            ''', (datetime.now().isoformat(), booking_reference))
-            
-            if cursor.rowcount == 0:
-                return {
-                    "success": False,
-                    "error": "Booking not found"
-                }
-            
-            conn.commit()
-            conn.close()
-            
-            return {
-                "success": True,
-                "booking_reference": booking_reference,
-                "status": "cancelled",
-                "message": "Booking cancelled successfully. Refund will be processed within 7-10 business days."
-            }
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
     def update_booking_status(self, booking_reference: str, status: str) -> bool:
-        """Update booking status (pending, confirmed, completed, cancelled)"""
+        """Update booking status (pending, confirmed, completed)"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -391,23 +357,23 @@ if __name__ == "__main__":
     )
     
     if booking["success"]:
-        print(f"✅ Booking created: {booking['booking_reference']}")
+        print(f" Booking created: {booking['booking_reference']}")
         print(f"   Amount: ₹{booking['total_amount']}")
         print(f"   Payment: {booking['payment_link']}\n")
         
         # 2. Check booking status
         print("2. Checking booking status")
         status = service.get_booking_status(booking['booking_reference'])
-        print(f"✅ Status: {status['status']}\n")
+        print(f" Status: {status['status']}\n")
         
         # 3. Update status to confirmed
         print("3. Updating status to confirmed")
         service.update_booking_status(booking['booking_reference'], "confirmed")
         status = service.get_booking_status(booking['booking_reference'])
-        print(f"✅ New status: {status['status']}\n")
+        print(f" New status: {status['status']}\n")
         
     else:
-        print(f"❌ Error: {booking['error']}")
+        print(f" Error: {booking['error']}")
     
-    print("✅ Booking service test completed")
+    print(" Booking service test completed")
 

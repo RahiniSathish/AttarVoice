@@ -1,0 +1,119 @@
+/* FlightCard.css - Modern Dark Theme Flight Card */
+
+.flight-card-modern {
+  background: rgba(0, 0, 0, 0.95);
+  border: 2px solid #14b8a6;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+.flight-card-modern:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(20, 184, 166, 0.3);
+  border-color: #2dd4bf;
+}
+
+/* Route Header */
+.flight-route {
+  margin-bottom: 12px;
+}
+
+.route-text {
+  font-size: 22px;
+  font-weight: 700;
+  color: #2dd4bf;
+  letter-spacing: 0.5px;
+}
+
+/* Airline Info */
+.flight-airline {
+  margin-bottom: 20px;
+}
+
+.airline-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+/* Flight Details */
+.flight-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.detail-icon {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+}
+
+.detail-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+/* Book Button */
+.book-button {
+  background: #14b8a6;
+  color: #000;
+  border: none;
+  padding: 14px 28px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+  box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
+}
+
+.book-button:hover {
+  background: #2dd4bf;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(20, 184, 166, 0.4);
+}
+
+.book-button:active {
+  transform: translateY(0);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .flight-card-modern {
+    padding: 18px;
+  }
+
+  .route-text {
+    font-size: 18px;
+  }
+
+  .airline-text {
+    font-size: 16px;
+  }
+
+  .detail-text {
+    font-size: 14px;
+  }
+
+  .book-button {
+    padding: 12px 24px;
+    font-size: 14px;
+  }
+}
+

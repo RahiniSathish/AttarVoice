@@ -18,6 +18,7 @@ const VoiceButton = ({ publicKey, assistantId }) => {
   const processedMessagesRef = useRef(new Set());
   const pollIntervalRef = useRef(null); // ⭐ NEW: Track polling interval
   const muteStateRef = useRef(false); // ⭐ NEW: Track mute state in ref for accurate toggling
+  const microphoneStreamRef = useRef(null); // ⭐ NEW: Store microphone stream for muting
   
   // ⭐ NEW: Trigger polling only when user asks for flights or hotels
   const [shouldPollFlights, setShouldPollFlights] = useState(false);
@@ -28,6 +29,9 @@ const VoiceButton = ({ publicKey, assistantId }) => {
   useEffect(() => {
     // Initialize Vapi client directly (no script loading needed)
     console.log('✅ Initializing Vapi SDK');
+    
+    // Set loading to false immediately so button appears
+    setIsLoading(false);
     
     try {
       vapiClientRef.current = new Vapi(publicKey);
@@ -628,7 +632,7 @@ const VoiceButton = ({ publicKey, assistantId }) => {
       });
       
       console.log('✅ Vapi SDK initialized successfully');
-      setIsLoading(false);
+      // Loading already set to false above
       
       // Hide any default Vapi UI elements that might appear
       setTimeout(() => {
@@ -654,7 +658,7 @@ const VoiceButton = ({ publicKey, assistantId }) => {
       
     } catch (error) {
       console.error('❌ Failed to initialize Vapi SDK:', error);
-      setIsLoading(false);
+      // Loading already set to false above
     }
 
     return () => {
@@ -720,7 +724,7 @@ const VoiceButton = ({ publicKey, assistantId }) => {
             // ⭐ CRITICAL: Only display cards ONCE
             if (flightCardsDisplayed) {
               console.log('⚠️ Flight cards already displayed in widget - skipping duplicate display');
-              clearInterval(pollIntervalRef.current);
+            clearInterval(pollIntervalRef.current);
               setShouldPollFlights(false);
               return;
             }
@@ -736,7 +740,7 @@ const VoiceButton = ({ publicKey, assistantId }) => {
             data.cards.forEach((card, idx) => {
               console.log(`  ✈️ Rendering flight card ${idx + 1}/${data.cards.length} in widget:`, card.title);
               
-              // Create HTML for flight card widget
+              // Create HTML for flight card widget (simple original style)
               const flightHtml = `
                 <div class="flight-card-widget" style="background:#1a1a1a;border:2px solid #14B8A6;border-radius:12px;padding:16px;margin-top:12px;font-family:system-ui;width:100%;max-width:500px">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -836,7 +840,7 @@ const VoiceButton = ({ publicKey, assistantId }) => {
             clearInterval(hotelPollInterval);
             setShouldPollHotels(false); // ⭐ Stop polling after cards found
             
-            // Render each hotel card
+            // Render each hotel card (simple original style)
             data.cards.forEach((card, idx) => {
               console.log(`  🏨 Rendering hotel card ${idx + 1}/${data.cards.length}:`, card.title);
               
@@ -1111,6 +1115,7 @@ const VoiceButton = ({ publicKey, assistantId }) => {
           setIsAssistantSpeaking(false);
           setIsMuted(false);
           muteStateRef.current = false; // ⭐ NEW: Reset mute state ref
+          microphoneStreamRef.current = null; // Clear microphone stream reference
           setCallId(null);
           setTranscript([]);
           setShouldPollFlights(false); // ⭐ Reset flight polling flag
@@ -1126,6 +1131,7 @@ const VoiceButton = ({ publicKey, assistantId }) => {
         setIsAssistantSpeaking(false);
         setIsMuted(false);
         muteStateRef.current = false; // ⭐ NEW: Reset mute state ref
+        microphoneStreamRef.current = null; // Clear microphone stream reference
         setCallId(null);
         setTranscript([]);
         setShouldPollFlights(false); // ⭐ Reset flight polling flag
@@ -1161,18 +1167,91 @@ const VoiceButton = ({ publicKey, assistantId }) => {
       muteStateRef.current = newMutedState;
       console.log('  ✅ Updated muteStateRef to:', newMutedState);
       
-      // Try to call Vapi API to set muted state
-      console.log('🔇 Calling vapiClient.setMuted(' + newMutedState + ')...');
+      // Method 1: Try Vapi SDK methods
+      const vapiClient = vapiClientRef.current;
+      let muteSuccess = false;
+      
       try {
-        if (vapiClientRef.current && typeof vapiClientRef.current.setMuted === 'function') {
-          vapiClientRef.current.setMuted(newMutedState);
+        // Try setMuted
+        if (typeof vapiClient.setMuted === 'function') {
+          vapiClient.setMuted(newMutedState);
           console.log('✅ vapiClient.setMuted() called successfully');
-        } else {
-          console.warn('⚠️ vapiClient.setMuted is not available, using UI-only muting');
+          muteSuccess = true;
+        }
+        // Try mute/unmute methods
+        else if (newMutedState && typeof vapiClient.mute === 'function') {
+          vapiClient.mute();
+          console.log('✅ vapiClient.mute() called successfully');
+          muteSuccess = true;
+        }
+        else if (!newMutedState && typeof vapiClient.unmute === 'function') {
+          vapiClient.unmute();
+          console.log('✅ vapiClient.unmute() called successfully');
+          muteSuccess = true;
+        }
+        // Try call object
+        else if (vapiClient.call && typeof vapiClient.call.setMuted === 'function') {
+          vapiClient.call.setMuted(newMutedState);
+          console.log('✅ vapiClient.call.setMuted() called successfully');
+          muteSuccess = true;
         }
       } catch (vapiError) {
-        console.warn('⚠️ Vapi setMuted failed:', vapiError.message);
-        console.warn('    Falling back to UI-only muting (state will update but Vapi may still hear audio)');
+        console.warn('⚠️ Vapi mute API failed:', vapiError.message);
+      }
+      
+      // Method 2: Access browser MediaStream directly to mute microphone track
+      if (!muteSuccess) {
+        try {
+          // First try to use stored stream reference
+          if (microphoneStreamRef.current) {
+            const audioTracks = microphoneStreamRef.current.getAudioTracks();
+            if (audioTracks.length > 0) {
+              audioTracks.forEach(track => {
+                track.enabled = !newMutedState; // enabled=false means muted
+                console.log(`✅ Microphone track ${track.label} ${newMutedState ? 'muted' : 'unmuted'}`);
+              });
+              muteSuccess = true;
+            }
+          }
+          
+          // If no stored stream, try to get current stream
+          if (!muteSuccess && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+              .then(stream => {
+                // Store the stream for future use
+                microphoneStreamRef.current = stream;
+                const audioTracks = stream.getAudioTracks();
+                if (audioTracks.length > 0) {
+                  audioTracks.forEach(track => {
+                    track.enabled = !newMutedState; // enabled=false means muted
+                    console.log(`✅ Microphone track ${track.label} ${newMutedState ? 'muted' : 'unmuted'}`);
+                  });
+                  muteSuccess = true;
+                } else {
+                  console.warn('⚠️ No audio tracks found in stream');
+                }
+              })
+              .catch(err => {
+                console.warn('⚠️ Could not access MediaStream:', err.message);
+              });
+          }
+        } catch (streamError) {
+          console.warn('⚠️ MediaStream access failed:', streamError.message);
+        }
+      }
+      
+      // Method 3: Try to find and mute active audio tracks from any source
+      if (!muteSuccess) {
+        try {
+          // Access all media tracks from the page
+          if (window.navigator && window.navigator.mediaDevices) {
+            // This is a fallback - try to mute any active audio input
+            console.log('⚠️ Trying fallback: muting all audio input tracks');
+            // Note: This might not work if Vapi manages its own stream internally
+          }
+        } catch (e) {
+          console.warn('⚠️ Fallback mute method failed:', e.message);
+        }
       }
       
       // Update React state to match (this is the important part)
@@ -1183,6 +1262,7 @@ const VoiceButton = ({ publicKey, assistantId }) => {
       // Log final state for verification
       console.log('🔍 Final muted state: ref=' + muteStateRef.current + ', react=' + newMutedState);
       console.log('   Button will show as ' + (newMutedState ? 'MUTED' : 'UNMUTED'));
+      console.log('   Mute operation success:', muteSuccess ? 'YES' : 'NO (UI-only)');
       
     } catch (error) {
       console.error('❌ Unexpected error in handleToggleMute:', error);
@@ -1199,23 +1279,24 @@ const VoiceButton = ({ publicKey, assistantId }) => {
     setTranscript([]);
   };
 
-  if (isLoading) {
-    return (
-      <button className="voice-button loading">
-        <div className="spinner"></div>
-      </button>
-    );
-  }
+  // Always show button, even during loading
+  // if (isLoading) {
+  //   return (
+  //     <button className="voice-button loading">
+  //       <div className="spinner"></div>
+  //     </button>
+  //   );
+  // }
 
   return (
     <>
-      {/* Floating Button - Rectangle with Icon and Text */}
-      <button 
-        className={`voice-button ${isConnected ? 'active' : ''} ${isOpen ? 'hidden' : ''}`}
-        onClick={handleButtonClick}
-        title="Talk with AI"
-        style={{ display: isOpen ? 'none' : 'flex' }}
-      >
+      {/* Floating Button - Rectangle with Icon and Text - Hide when widget opens */}
+      {!isOpen && (
+        <button 
+          className="voice-button"
+          onClick={handleButtonClick}
+          title="Talk with AI"
+        >
         <svg 
           width="20" 
           height="20" 
@@ -1232,9 +1313,9 @@ const VoiceButton = ({ publicKey, assistantId }) => {
             fill="white"
           />
         </svg>
-        <span>TALK WITH AI</span>
-        {isConnected && <span className="pulse-ring"></span>}
-      </button>
+          <span>TALK WITH AI</span>
+        </button>
+      )}
 
       {/* Vapi Panel */}
       {isOpen && (
@@ -1277,19 +1358,54 @@ const VoiceButton = ({ publicKey, assistantId }) => {
                 </div>
               ) : (
                 <>
-                  {transcript.map((msg, idx) => (
-                    <div key={idx} className={`transcript-message ${msg.role}`}>
-                      <div className="message-role">{msg.role === 'user' ? 'You' : 'Assistant'}</div>
-                      {msg.isHTML ? (
-                        <div 
-                          className="message-content" 
-                          dangerouslySetInnerHTML={{ __html: msg.content }}
-                        />
-                      ) : (
-                        <div className="message-content">{msg.content}</div>
-                      )}
-                    </div>
-                  ))}
+                  {(() => {
+                    // Group consecutive messages of the same role together
+                    const groupedMessages = [];
+                    let currentGroup = null;
+                    
+                    transcript.forEach((msg, idx) => {
+                      // If HTML messages or different role, start a new group
+                      if (msg.isHTML || !currentGroup || currentGroup.role !== msg.role) {
+                        if (currentGroup) {
+                          groupedMessages.push(currentGroup);
+                        }
+                        currentGroup = {
+                          role: msg.role,
+                          contents: [msg],
+                          key: idx
+                        };
+                      } else {
+                        // Same role, add to current group (only if not HTML)
+                        currentGroup.contents.push(msg);
+                      }
+                    });
+                    
+                    // Don't forget the last group
+                    if (currentGroup) {
+                      groupedMessages.push(currentGroup);
+                    }
+                    
+                    return groupedMessages.map((group, groupIdx) => {
+                      const htmlMessages = group.contents.filter(msg => msg.isHTML);
+                      const textMessages = group.contents.filter(msg => !msg.isHTML);
+                      
+                      return (
+                        <div key={group.key || groupIdx} className={`transcript-message ${group.role}`}>
+                          <div className="message-role">{group.role === 'user' ? 'You' : 'Assistant'}</div>
+                          <div className="message-content">
+                            {/* Render HTML messages */}
+                            {htmlMessages.map((msg, msgIdx) => (
+                              <div key={`html-${msgIdx}`} dangerouslySetInnerHTML={{ __html: msg.content }} />
+                            ))}
+                            {/* Combine text messages into one */}
+                            {textMessages.length > 0 && (
+                              <div>{textMessages.map(msg => msg.content).join(' ')}</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
                   
                   {/* Invisible element for auto-scroll */}
                   <div ref={transcriptEndRef} />
@@ -1307,7 +1423,7 @@ const VoiceButton = ({ publicKey, assistantId }) => {
                     <line x1="12" y1="19" x2="12" y2="23"></line>
                     <line x1="8" y1="23" x2="16" y2="23"></line>
                   </svg>
-                  <span>Start</span>
+                  Start
                 </button>
               ) : (
                 <div className="call-controls">

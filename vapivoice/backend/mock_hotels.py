@@ -212,7 +212,7 @@ class MockHotelsDatabase:
                 }
             ]
         }
-        logger.info("✅ Mock Hotels Database initialized")
+        logger.info(" Mock Hotels Database initialized")
         logger.info(f"📊 Available cities: {list(self.hotels_data.keys())}")
         for city, hotels in self.hotels_data.items():
             logger.info(f"   - {city}: {len(hotels)} hotels")
@@ -239,8 +239,8 @@ class MockHotelsDatabase:
                     break
             
             if not matching_city:
-                logger.warning(f"⚠️ City '{city}' not found in database")
-                logger.info(f"📋 Available cities: {', '.join(self.hotels_data.keys())}")
+                logger.warning(f" City '{city}' not found in database")
+                logger.info(f" Available cities: {', '.join(self.hotels_data.keys())}")
                 return {
                     "success": False,
                     "message": f"Hotels for '{city}' not found. Available: Riyadh, Jeddah, Al-Ula, Abha, Dammam",
@@ -248,7 +248,7 @@ class MockHotelsDatabase:
                 }
             
             hotels = self.hotels_data[matching_city]
-            logger.info(f"✅ Found {len(hotels)} hotels in {matching_city}")
+            logger.info(f" Found {len(hotels)} hotels in {matching_city}")
             
             return {
                 "success": True,
@@ -259,7 +259,7 @@ class MockHotelsDatabase:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error searching hotels: {e}")
+            logger.error(f" Error searching hotels: {e}")
             return {
                 "success": False,
                 "message": str(e),
@@ -272,14 +272,14 @@ class MockHotelsDatabase:
             for city_hotels in self.hotels_data.values():
                 for hotel in city_hotels:
                     if hotel["id"] == hotel_id:
-                        logger.info(f"✅ Found hotel: {hotel['name']}")
+                        logger.info(f" Found hotel: {hotel['name']}")
                         return hotel
             
-            logger.warning(f"⚠️ Hotel '{hotel_id}' not found")
+            logger.warning(f" Hotel '{hotel_id}' not found")
             return None
             
         except Exception as e:
-            logger.error(f"❌ Error getting hotel details: {e}")
+            logger.error(f" Error getting hotel details: {e}")
             return None
     
     def get_all_cities(self) -> List[str]:
@@ -304,9 +304,9 @@ if __name__ == "__main__":
     # Test search
     print("\n🧪 Testing hotel search...")
     result = db.search_hotels("Riyadh")
-    print(f"✅ Result: {result['success']}, Hotels: {result['total']}")
+    print(f" Result: {result['success']}, Hotels: {result['total']}")
     
     if result["success"]:
         print(f"\n📊 First hotel: {result['hotels'][0]}")
     
-    print("\n✅ Mock Hotels Database ready!")
+    print("\n Mock Hotels Database ready!")
